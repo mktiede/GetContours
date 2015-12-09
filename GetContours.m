@@ -571,7 +571,11 @@ switch upper(varargin{1}),
 		state.PREVAP = state.ANCHORS;
 		set(gcbf,'pointer','watch'); drawnow;
 		img = im2double(get(state.IH,'cdata'));
-		xy = state.TRACKERP(img, state.ANCHORS, state.NPOINTS, state.TRACKERA);
+		if isempty(state.TRACKERA),
+			xy = state.TRACKERP(img, state.ANCHORS, state.NPOINTS);
+		else,
+			xy = state.TRACKERP(img, state.ANCHORS, state.NPOINTS, state.TRACKERA{:});
+		end;
 		set(gcbf,'pointer','arrow');
 		state.XY = xy;
 		set(state.CLH,'xdata',xy(:,1),'ydata',xy(:,2));
@@ -787,12 +791,12 @@ if state.USEAVG,
 	if post > state.NFRAMES, post = state.NFRAMES; end;
 	try,
 		img1 = uint8(mean(GetMovieFrame(state.MH,pre,state.FRATE),3));
-		if ~isempty(state.IMGMODP), img1 = state.IMGMODP(img1,state.IMGMODA); end;
+		if ~isempty(state.IMGMODP), img1 = state.IMGMODP(img1,state.IMGMODA{:}); end;
 		img = zeros(size(img1,1),size(img1,2),post-pre+1,'uint8');
 		img(:,:,1) = img1;
 		for k = 1 : post-pre,
 			img1 = uint8(mean(GetMovieFrame(state.MH,k+pre,state.FRATE),3));
-			if ~isempty(state.IMGMODP), img1 = state.IMGMODP(img1,state.IMGMODA); end;
+			if ~isempty(state.IMGMODP), img1 = state.IMGMODP(img1,state.IMGMODA{:}); end;
 			img(:,:,k) = img1;
 		end;
 		img = uint8(mean(img,3));
@@ -802,7 +806,7 @@ if state.USEAVG,
 else,
 	try,
 		img = uint8(mean(GetMovieFrame(state.MH,state.CURFRAME,state.FRATE),3));
-		if ~isempty(state.IMGMODP), img = state.IMGMODP(img,state.IMGMODA); end;
+		if ~isempty(state.IMGMODP), img = state.IMGMODP(img,state.IMGMODA{:}); end;
 	catch
 		fail = 1;
 	end
@@ -967,8 +971,8 @@ try,
 	img = uint8(mean(GetMovieFrame(mh,frame,frameRate),3));
 	if ~isempty(ImageMod), 
 		p = ImageMod{1};
-		a = ImageMod{2:end};
-		img = p(img,a); 
+		a = ImageMod(2:end);
+		img = p(img,a{:}); 
 	end;
 catch,
 	error('unable to load frame %d in %s (%d frames available)', frame, fNameExt, nFrames);
@@ -1103,11 +1107,11 @@ state = struct('IH', ih, ...				% image handle
 state.LABELS = labs;
 if ~isempty(ImageMod),
 	if iscell(ImageMod), state.IMGMODP = ImageMod{1}; else, state.IMGMODP = ImageMod; end;
-	if length(ImageMod) > 1, state.IMGMODA = ImageMod{2:end}; end;
+	if length(ImageMod) > 1, state.IMGMODA = ImageMod(2:end); end;
 end;
 if ~isempty(Tracker),
 	if iscell(Tracker), state.TRACKERP = Tracker{1}; else, state.TRACKERP = Tracker; end;
-	if length(Tracker) > 1, state.TRACKERA = Tracker{2:end}; end;
+	if length(Tracker) > 1, state.TRACKERA = Tracker(2:end); end;
 end;
 
 set(fh,'name',sprintf('%s  [%d of %d]',fName,frame,nFrames), ...
