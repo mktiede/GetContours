@@ -343,11 +343,12 @@ switch upper(varargin{1}),
 		[fName,pName] = uiputfile('*.txt','Export Contours to tab-delimited text file',[state.VNAME,'.txt']);
 		if fName == 0, return; end;		% cancel
 		
-		v = evalin('base',state.VNAME);						% update output variable state
-		frames = cell2mat({v.FRAME});
+		v = evalin('base',state.VNAME);			
+		frames = cell2mat({v.FRAME});			% frames with data
 		k = (state.CURFRAME == frames);
 		v(k).XY = state.XY;
 		v(k).ANCHORS = state.ANCHORS;
+		v(k).NOTE = get(state.LH,'string');
 		[n,k] = sort(frames);
 		v = v(k);	
 		v(cellfun(@isempty,{v.XY})) = [];					% delete empty frames
@@ -368,16 +369,12 @@ switch upper(varargin{1}),
 		
 		
 %-----------------------------------------------------------------------------
-% FILTER:  filter image
+% FILTER:  show image forces
 
 	case 'FILTER',
 		state = get(gcbf,'userData');
-		if varargin{2},
-			img = ComputeImageForces(im2double(get(state.IH,'cdata')));
-			img = im2uint8((img-min(img(:)))./range(img(:)));
-		else,
-			img = GetImage(state);
-		end;
+		img = ComputeImageForces(im2double(get(state.IH,'cdata')));
+		img = im2uint8((img-min(img(:)))./range(img(:)));
 		set(state.IH,'cdata',img);
 		
 		
@@ -553,6 +550,17 @@ switch upper(varargin{1}),
 		set(gcbf,'userData',UpdateContour(state));
 		
 
+%-----------------------------------------------------------------------------
+% RESET:  reset to original image
+
+	case 'RESET',
+		state = get(gcbf,'userData');
+		state.USEAVG = 0;
+		set(state.IH,'cdata',GetImage(state));
+		set(gcbf,'userData',state);
+		set(gca,'xdir','normal','ydir','reverse','clim',state.CLIM);
+		
+		
 %-----------------------------------------------------------------------------
 % TRACK:  apply automatic tracker
 
@@ -972,6 +980,7 @@ pos = get(0, 'defaultfigureposition');
 fh = figure('units','pixels', 'resize','off', 'tag','GETCONTOURS', 'position',[pos(1) , pos(2)+pos(4)-rows , cols, rows]);
 set(fh, 'colormap', gray(256));
 ih = imagesc(img);
+clim = get(gca,'clim');
 set(gca, 'position',[0 0 1 1], 'xtick',[],'ytick',[]);
 
 % display frame number
@@ -1036,10 +1045,10 @@ uimenu(menu,'label','Undo Last Change', ...
 uimenu(menu,'label','Filter', ...
 			'separator','on', ...
 			'accelerator', 'L', ...
-			'callback',{@GetContours,'FILTER',1});
+			'callback',{@GetContours,'FILTER'});
 uimenu(menu,'label','Original', ...
 			'accelerator', 'G', ...
-			'callback',{@GetContours,'FILTER',0});
+			'callback',{@GetContours,'RESET'});
 uimenu(menu,'label','Averaging...', ...
 			'callback',{@GetContours,'AVERAGING'});
 
@@ -1068,6 +1077,7 @@ state = struct('IH', ih, ...				% image handle
 				'TH', th, ...				% frame text handle
 				'LH', lh, ...				% annotation text handle
 				'NH', nh, ...				% inherit anchors menu handle
+				'CLIM', clim, ...			% original contrast limits
 				'CONFIG', cfg, ...			% display configuration
 				'IMGMODP', [], ...			% image preprocessor 
 				'IMGMODA', [], ...			% and its arguments
