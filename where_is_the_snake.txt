@@ -1,0 +1,6 @@
+... I am still working on a stable version of the Snake active contour tracking plug-in
+and will post it shortly.
+
+If you're desperate you can email me for a buggy beta to play with.
+
+mkt
