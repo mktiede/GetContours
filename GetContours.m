@@ -86,9 +86,10 @@ function varargout = GetContours(varargin)
 % mkt 07/14 v0.5 handle corrupt movie frames, display interval labels
 % mkt 08/14 v0.6 support annotation, fix keyframe issues
 % mkt 10/15 v0.7 support for r2014b+
-% mkt 12/15 v0.8
+% mkt 12/15 v0.8 UltraFest2015
+% mkt 08/16 v0.9 bug fixes, better tracking support
 
-GCver = 'v0.8';	% current version
+GCver = 'v0.9';	% current version
 
 if nargin < 1,
 	eval('help GetContours');
@@ -218,6 +219,17 @@ switch upper(varargin{1}),
 
 
 %-----------------------------------------------------------------------------
+% DELETE:  delete existing anchors
+
+	case 'DELETE',
+		if strcmp(questdlg('Clear all anchors...', 'Verify...', 'Yes', 'No', 'Yes'), 'Yes'),
+			state = get(gcbf,'userData');
+			delete(findobj(gca,'tag','CONTOUR'));
+			state.CLH = []; state.ALH = []; state.ANCHORS = [];
+			set(gcf,'userData',UpdateContour(state));
+		end;
+
+%-----------------------------------------------------------------------------
 % DOWN:  mouseDown handler
 %
 % click in image creates new anchor point
@@ -273,11 +285,9 @@ switch upper(varargin{1}),
 								'userData',UpdateContour(state));
 				end;
 
-% delete all points
-			case 'open',			% double-click
-				delete(findobj(gca,'tag','CONTOUR'));
-				state.CLH = []; state.ALH = []; state.ANCHORS = [];
-				set(gcf,'userData',UpdateContour(state));
+% ignore double-clock
+			case 'open',
+				;
 
 % delete existing point (ctl) or echo position (shift)
 			otherwise,
@@ -572,10 +582,11 @@ switch upper(varargin{1}),
 		set(gcbf,'pointer','watch'); drawnow;
 		img = im2double(get(state.IH,'cdata'));
 		if isempty(state.TRACKERA),
-			xy = state.TRACKERP(img, state.ANCHORS, state.NPOINTS);
+			params = {'NPOINTS',state.NPOINTS};
 		else,
-			xy = state.TRACKERP(img, state.ANCHORS, state.NPOINTS, state.TRACKERA{:});
+			params = {state.TRACKERA{:},'NPOINTS',state.NPOINTS};
 		end;
+		xy = state.TRACKERP(img, state.ANCHORS, params{:});
 		set(gcbf,'pointer','arrow');
 		state.XY = xy;
 		set(state.CLH,'xdata',xy(:,1),'ydata',xy(:,2));
@@ -1037,6 +1048,9 @@ nh = uimenu(menu,'label','Inherit Anchors', ...
 uimenu(menu,'label','Redistribute Anchors', ...
 			'accelerator','R', ...
 			'callback',{@GetContours,'REDISTRIBUTE',1});
+uimenu(menu,'label','Delete Anchors', ...
+			'accelerator','Y', ...
+			'callback',{@GetContours,'DELETE'});
 if isempty(Tracker), s = 'off'; else, s = 'on'; end;
 uimenu(menu,'label','Apply Tracking', ...
 			'accelerator','T', ...
