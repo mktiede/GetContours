@@ -88,8 +88,9 @@ function varargout = GetContours(varargin)
 % mkt 10/15 v0.7 support for r2014b+
 % mkt 12/15 v0.8 UltraFest2015
 % mkt 08/16 v0.9 bug fixes, better tracking support
+% mkt 10/16 v1.0 release, fix inherit anchors into empty frame
 
-GCver = 'v0.9';	% current version
+GCver = 'v1.0';	% current version
 
 if nargin < 1,
 	eval('help GetContours');
@@ -467,15 +468,21 @@ switch upper(varargin{1}),
 		delete(findobj(gca,'tag','CONTOUR'));
 		state.ALH = []; state.CLH = [];
 		k = find(f == frames);
-		if isempty(k),				% virgin frame
+		if isempty(k),					% virgin frame
 			if strcmpi('off',get(state.NH,'checked')),
 				state.ANCHORS = [];		% don't inherit
 				state.XY = [];
 			end;
 			vv = struct('XY',state.XY,'ANCHORS',state.ANCHORS,'FRAME',f,'NOTE',ts);
-			v(end+1) = vv;			
-		else,						% update from existing anchors
-			state.PREVAP = state.ANCHORS;
+			v(end+1) = vv;
+		else,							% update from existing anchors
+			if isempty(v(k).ANCHORS) && strcmpi('on',get(state.NH,'checked')),
+				v(k).XY = state.XY;		% inherit into empty frame
+				v(k).ANCHORS = state.ANCHORS;
+				state.PREVAP = [];
+			else,
+				state.PREVAP = state.ANCHORS;
+			end;			
 			state.ANCHORS = v(k).ANCHORS;
 			state.XY = v(k).XY;
 			v(k).NOTE = ts;
