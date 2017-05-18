@@ -89,8 +89,10 @@ function varargout = GetContours(varargin)
 % mkt 12/15 v0.8 UltraFest2015
 % mkt 08/16 v0.9 bug fixes, better tracking support
 % mkt 10/16 v1.0 release, fix inherit anchors into empty frame
+% mkt 11/16 v1.1 fix explicit keyframes issues
+% mkt 02/17 v1.2 fix point addition order
 
-GCver = 'v1.0';	% current version
+GCver = 'v1.2';	% current version
 
 if nargin < 1,
 	eval('help GetContours');
@@ -263,22 +265,27 @@ switch upper(varargin{1}),
 
 % if new point is within existing points (less than half distance between nearest two points)
 % then add it between those points, else append it to nearest end
-					if isempty(state.ANCHORS),
-						k = 1;
-					else,
-						d = sqrt(sum((ones(size(state.ANCHORS,1),1)*cp - state.ANCHORS).^2,2));
-						[~,k] = min(d);
-					end;
-					if k == 1,				% add to beginning
-						state.ALH = [lh , state.ALH];
-						state.ANCHORS = [cp ; state.ANCHORS];
-					elseif k == length(d),	% add to end
-						state.ALH(end+1) = lh;
-						state.ANCHORS(end+1,:) = cp;
-					else,
-						if d(k-1) < d(k+1), k2 = k; k = k-1; else, k2 = k+1; end;
-						state.ALH = [state.ALH(1:k) , lh , state.ALH(k2:end)];
-						state.ANCHORS = [state.ANCHORS(1:k,:) ; cp ; state.ANCHORS(k2:end,:)];
+					switch length(state.ALH),
+						case 0,			% first point
+							state.ALH = lh;
+							state.ANCHORS = cp;
+						case 1,			% second point
+							state.ALH = [state.ALH , lh];
+							state.ANCHORS = [state.ANCHORS ; cp];
+						otherwise,		
+							d = sqrt(sum((ones(size(state.ANCHORS,1),1)*cp - state.ANCHORS).^2,2));
+							[~,k] = min(d);			% index of closest point
+							if k == 1,				% prefix to first point
+								state.ALH = [lh , state.ALH];
+								state.ANCHORS = [cp ; state.ANCHORS];
+							elseif k == length(d),	% append to last point
+								state.ALH = [state.ALH, lh];
+								state.ANCHORS = [state.ANCHORS ; cp];
+							else,					% insert betweeen existing points
+								if d(k-1) < d(k+1), k2 = k; k = k-1; else, k2 = k+1; end;
+								state.ALH = [state.ALH(1:k) , lh , state.ALH(k2:end)];
+								state.ANCHORS = [state.ANCHORS(1:k,:) ; cp ; state.ANCHORS(k2:end,:)];
+							end;
 					end;
 					set(gcbf, 'windowButtonMotionFcn',{@GetContours,'MOVE',lh}, ...
 								'windowButtonUpFcn',{@GetContours,'UP',lh}, ...
@@ -369,7 +376,7 @@ switch upper(varargin{1}),
 		sr = state.MH.FrameRate;
 		fid = fopen(fName,'wt');
 		if fid < 0, fprintf('Error attempting to open %s\n',fName); return; end;
-		fprintf(fid,'FRAME\tTIME\tPOINT\tNOTE\tX\tY\n');
+		fprintf(fid,'FRAME\tTIME\tNOTE\tPOINT\tX\tY\n');
 		for fi = 1 : length(frames),
 			for ci = 1 : size(contours,1),
 				fprintf(fid,'%d\t%f\t%s\t%d\t%f\t%f\n', frames(fi), (frames(fi)-1)/sr, notes{fi}, ci, contours(ci,1,fi), contours(ci,2,fi));
@@ -975,13 +982,22 @@ else,
 	nFrames = floor(mh.Duration*frameRate);
 end;
 
-% parse the TextGrid
-keyFrames = []; labs = [];
-if ~isempty(textgrid), [keyFrames,labs] = ParseTextGrid(textgrid,frameRate); end;
+% parse the TextGrid (if no explicit keyFrames)
+labs = [];
+if isempty(keyFrames) & ~isempty(textgrid), 
+	[keyFrames,labs] = ParseTextGrid(textgrid,frameRate); 
+end;
 if isempty(keyFrames), 
 	frame = 1; ts = ''; enableS = 'off';
 else, 
-	frame = keyFrames(1); ts = labs{1}; enableS = 'on';
+	frame = keyFrames(1); 
+	if isempty(labs), 
+		ts = ''; 
+		labs = repmat({''},length(keyFrames),1);
+	else, 
+		ts = labs{1}; 
+	end; 
+	enableS = 'on';
 end
 
 % load first image

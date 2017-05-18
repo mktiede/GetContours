@@ -30,6 +30,7 @@ function p = DotsTrack(fName, p0, varargin)
 %   XFORM   - conditioning function applied to each frame (e.g., @(img) 255-uint8(mean(img,3)))
 %
 % to extract points as an [nFrames x X,Y x nPoints] array:
+%   p(cellfun(@isempty,{p(:,1).POS}),:) = [];  % delete trailing empty frames
 %   xy = permute(reshape(cell2mat({p.POS}),[2,size(p,1),size(p,2)]),[2 1 3]); 
 %   figure; pp2(xy); set(gca,'ydir','reverse'); legend({p(1,:).LABEL})
 %
@@ -221,7 +222,9 @@ while 1,
 					set(lh,'visible','off');
 					set(th,'visible','off');
 					set(bh,'visible','off');
+					invalid = get(gca,'userdata');
 					p(idx,:) = DotsPlace(img,'IH',ih,'P0',p(idx,:));
+					set(gca,'userdata','invalid');
 					xy = cell2mat({p(idx,:).POS}');
 					set(lh,'XData',xy(:,1),'YData',xy(:,2));
 					for k = 1 : size(xy,1), set(th(k),'position',xy(k,:)); end;
@@ -271,6 +274,22 @@ while 1,
 					initialize(pt,xy,img);
 					set(tbh,'string','TRACKING...');		% restart tracking
 					break; 
+				elseif (4 == get(fh,'userdata')),			% modify
+					if isempty(p(idx,1).POS), idx = oIdx; end;
+					set(fh,'name',sprintf('ADJUST DOTS IN FRAME %d...',frames(idx)));
+					set(lh,'visible','off');
+					set(th,'visible','off');
+					set(bh,'visible','off');
+					invalid = get(gca,'userdata');
+					p(idx,:) = DotsPlace(img,'IH',ih,'P0',p(idx,:));
+					set(gca,'userdata',invalid);
+					xy = cell2mat({p(idx,:).POS}');
+					set(lh,'XData',xy(:,1),'YData',xy(:,2));
+					for k = 1 : size(xy,1), set(th(k),'position',xy(k,:)); end;
+					set(bh,'visible','on');
+					set(th,'visible','on');
+					set(lh,'visible','on');
+					set(fh,'name',sprintf('%s  FRAME %04d / %04d  (%.3f secs)', fName, frames(idx), length(frames), p(idx,1).TIME), 'userdata',0);					
 				end;
 			end;
 		end;
