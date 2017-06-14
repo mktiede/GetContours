@@ -43,6 +43,7 @@ function p = DotsTrack(fName, p0, varargin)
 
 % mkt 01/15
 % mkt 10/15 support for names and structured points arrays
+% mkt 06/17 allow stepping without tracking (to move through invalid regions)
 
 % callback handlers
 if nargin < 2, eval('help DotsTrack'); return; end;
@@ -130,7 +131,7 @@ end;
 img = GetMovieFrame(mh,frames(1));
 if ~isempty(xform), f = xform{1}; a = xform(2:end); img = f(img,a{:}); end;
 [fh,ih] = implot(img);
-set(fh,'userdata',0);
+set(fh,'userdata',0,'menubar','none');
 
 % display markers
 idx = 1;
@@ -144,15 +145,15 @@ end;
 set(gca,'userdata',invalid);			% gca userdata holds copy of invalid map
 labels = {p(idx,:).LABEL};
 m = uicontextmenu; uimenu(m,'label','one'); uimenu(m,'label','two','callback','disp(gcbo)');
-colors = 'grkm';		% good, bad track, invalid, bad+invalid
+colors = 'cgrkm';		% provisional, good, bad track, invalid, bad+invalid
 checked = {'off','on'};	% valid, invalid
 for k = 1 : length(labels),
 	m = uicontextmenu;				% menu handle userdata points to line handle for color change in callback
 	hh(k) = uimenu(m,'label','INVALID','checked',checked{invalid(k)+1},'callback',{@DotsTrack,'CBMENU',k});
-	if isempty(p(idx,k).STATUS), c = 1; else, c = p(idx,k).STATUS+1; end;
+	if isempty(p(idx,k).STATUS), c = 1; else, c = p(idx,k).STATUS+2; end;
 	lh(k) = line(xy(k,1),xy(k,2),'color',colors(c),'marker','+','linestyle','none','TAG','DTRK','uicontextmenu',m);
 	set(hh(k),'userdata',lh(k));
-	th(k) = text(xy(k,1),xy(k,2),['  ',labels{k}],'color','w','TAG','DTRK','uicontextmenu',m);
+	th(k) = text(xy(k,1),xy(k,2),['  ',labels{k}],'color','w','TAG','DTRK','uicontextmenu',m,'interpreter','none');
 end
 
 % init controls:  gcf userdata maps state
@@ -196,34 +197,25 @@ while 1,
 		set(tbh,'string','PAUSED');
 		while 1,
 			state = get(fh,'userData');
-			tFrames = find(~cellfun(@isempty,{p(:,1).STATUS}));  % tracked frames
-			if isempty(tFrames), state = 0; end;
 			switch state,
 				case {-2,-1}, 	% reverse
 					idx = idx - 1; 
-					if idx < tFrames(1), idx = tFrames(1); state = 0; end;
+					if idx < 1, idx = 1; state = 0; end;
 				case 0,			% stop cycling
 				case {1,2}, 	% forward
 					idx = idx + 1; 
-					if idx > length(frames),
-						idx = length(frames); state = 0;
-					elseif idx > tFrames(end), 
-						idx = tFrames(end); state = 0; 
-					end;
+					if idx > length(frames), idx = length(frames); state = 0; end;
 				case 3,			% frame field
 					f = round(str2num(get(efh,'string')));
-					if isempty(f), f = frames(idx); end;
-					k = intersect(frames,find(~cellfun(@isempty,{p(:,1).STATUS})));  % tracked frames
-					if isempty(k), k = frames(1); end;
-					[~,idx] = min(abs(k-f)); 
+					[~,idx] = min(abs(frames-f)); 
 				case 4,			% modify point locations
-					if isempty(p(idx,1).POS), idx = oIdx; end;
 					set(fh,'name',sprintf('ADJUST DOTS IN FRAME %d...',frames(idx)));
 					set(lh,'visible','off');
 					set(th,'visible','off');
 					set(bh,'visible','off');
 					invalid = get(gca,'userdata');
 					p(idx,:) = DotsPlace(img,'IH',ih,'P0',p(idx,:));
+					oIdx = idx;
 					set(gca,'userdata','invalid');
 					xy = cell2mat({p(idx,:).POS}');
 					set(lh,'XData',xy(:,1),'YData',xy(:,2));
@@ -231,24 +223,28 @@ while 1,
 					set(bh,'visible','on');
 					set(th,'visible','on');
 					set(lh,'visible','on');
-					set(fh,'name',sprintf('%s  FRAME %04d / %04d  (%.3f secs)', fName, frames(idx), length(frames), p(idx,1).TIME));
+					set(fh,'name',sprintf('%s  FRAME %04d / %04d  (%.3f secs)', fName, frames(idx), frames(end), p(idx,1).TIME));
 			end;
 
-% validate new frame
-			if isempty(idx) || isempty(p(idx,1).POS),
-				idx = oIdx;						% don't move beyond tracked data
+% process new frame
+			if isempty(idx),
+				idx = oIdx;
 				state = 0;
 				set(efh,'string',sprintf(' %04d',frames(idx)));
 			else,
-				oIdx = idx;
 				img = GetMovieFrame(mh,frames(idx));
 				if ~isempty(xform), f = xform{1}; a = xform(2:end); img = f(img,a{:}); end;
 				set(ih,'cdata',img);
 				set(efh,'string',sprintf(' %04d',frames(idx)));
-				set(fh,'name',sprintf('%s  FRAME %04d / %04d  (%.3f secs)', fName, frames(idx), length(frames), p(idx,1).TIME));
-				xy = cell2mat({p(idx,:).POS}');				
+				set(fh,'name',sprintf('%s  FRAME %04d / %04d  (%.3f secs)', fName, frames(idx), frames(end), p(idx,1).TIME));
+				if isempty(p(idx,1).POS),		% update frame using last available point locations
+					xy = cell2mat({p(oIdx,:).POS}');
+				else,							% update frame from existing point locations
+					oIdx = idx;
+					xy = cell2mat({p(idx,:).POS}');	
+				end;
 				for k = 1 : size(xy,1), 
-					if isempty(p(idx,k).STATUS), c = 1; else, c = p(idx,k).STATUS+1; end;
+					if isempty(p(idx,k).STATUS), c = 1; else, c = p(idx,k).STATUS+2; end;
 					set(lh(k),'XData',xy(k,1),'YData',xy(k,2),'color',colors(c));
 					set(th(k),'position',xy(k,:)); 
 				end;
@@ -264,24 +260,31 @@ while 1,
 					set(gca,'userdata',invalid);
 					for k = 1 : length(invalid), set(hh(k),'checked',checked{invalid(k)+1}); end;
 				end;
+				
 				uiwait(fh);
+				
 				if ~ishandle(fh), break; end;
 				invalid = get(gca,'userdata');
 				if ~get(tbh,'value'), 	% restart tracking
-					xy = cell2mat({p(idx,:).POS}');	
+					if isempty(p(idx,1).POS),		% update frame using last available point locations
+						xy = cell2mat({p(oIdx,:).POS}');
+					else,							% update frame from existing point locations
+						xy = cell2mat({p(idx,:).POS}');	
+					end;
 					xy(invalid,:) = [];
 					release(pt);
 					initialize(pt,xy,img);
 					set(tbh,'string','TRACKING...');		% restart tracking
 					break; 
 				elseif (4 == get(fh,'userdata')),			% modify
-					if isempty(p(idx,1).POS), idx = oIdx; end;
 					set(fh,'name',sprintf('ADJUST DOTS IN FRAME %d...',frames(idx)));
 					set(lh,'visible','off');
 					set(th,'visible','off');
 					set(bh,'visible','off');
 					invalid = get(gca,'userdata');
+					if isempty(p(idx,1).POS), p(idx,:) = p(oIdx,:); end;
 					p(idx,:) = DotsPlace(img,'IH',ih,'P0',p(idx,:));
+					oIdx = idx;
 					set(gca,'userdata',invalid);
 					xy = cell2mat({p(idx,:).POS}');
 					set(lh,'XData',xy(:,1),'YData',xy(:,2));
@@ -289,7 +292,7 @@ while 1,
 					set(bh,'visible','on');
 					set(th,'visible','on');
 					set(lh,'visible','on');
-					set(fh,'name',sprintf('%s  FRAME %04d / %04d  (%.3f secs)', fName, frames(idx), length(frames), p(idx,1).TIME), 'userdata',0);					
+					set(fh,'name',sprintf('%s  FRAME %04d / %04d  (%.3f secs)', fName, frames(idx), frames(end), p(idx,1).TIME), 'userdata',0);					
 				end;
 			end;
 		end;
@@ -300,13 +303,13 @@ while 1,
 		if ~isempty(xform), f = xform{1}; a = xform(2:end); img = f(img,a{:}); end;
 		set(ih,'cdata',img);
 		set(efh,'string',sprintf(' %04d',frames(idx)));
-		set(fh,'userdata',0,'name',sprintf('%s  FRAME %04d / %04d  (%.3f secs)', fName, frames(idx), length(frames), p(idx,1).TIME));
+		set(fh,'userdata',0,'name',sprintf('%s  FRAME %04d / %04d  (%.3f secs)', fName, frames(idx), frames(end), p(idx,1).TIME));
 		[xy,v,conf] = step(pt,img);		% step the tracker, returning new points, validity, and confidence
 
 % map tracked points onto full set (if any user-marked as invalid)
 		if any(invalid),
 			fxy = cell2mat({p(idx,:).POS}');
-			if isempty(fxy), fxy = cell2mat({p(frames(oIdx),:).POS}'); end;
+			if isempty(fxy), fxy = cell2mat({p(oIdx,:).POS}'); end;
 			fv = ones(1,size(p,2));
 			fc = zeros(1,size(p,2));
 			k = find(~invalid);
@@ -321,7 +324,7 @@ while 1,
 		p(idx,1).TIME = (frames(idx)-1)/frameRate;
 		for k = 1 : size(p,2),
 			p(idx,k).STATUS = uint8(~v(k)) + uint8(2*invalid(k));
-			set(lh(k),'XData',xy(k,1),'YData',xy(k,2),'color',colors(p(idx,k).STATUS+1));
+			set(lh(k),'XData',xy(k,1),'YData',xy(k,2),'color',colors(p(idx,k).STATUS+2));
 			set(th(k),'position',xy(k,:)); 
 			p(idx,k).POS = xy(k,:);
 			p(idx,k).LABEL = labels{k};
@@ -345,6 +348,7 @@ while 1,
 			set(th,'visible','on');
 			set(lh,'visible','on');
 			set(tbh,'value',1);		% force pause
+			oIdx = idx;
 			continue;
 		else,
 			xy(invalid,:) = [];

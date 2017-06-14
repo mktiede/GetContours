@@ -160,7 +160,7 @@ switch action,
 				if isempty(p0(li).STATUS), c = 1; else, c = p0(li).STATUS+1; end;
 				lh = line(p0(li).POS(1),p0(li).POS(2),'color',col(c),'marker','+','tag','DPLC','buttonDownFcn',{@DotsPlace,'DOWN'});
 				if allowEdit, s = sprintf('  %s',p0(li).LABEL); else, s = sprintf('  %d %s',li,p0(li).LABEL); end;
-				th = text(p0(li).POS(1),p0(li).POS(2),s,'color','w','userdata',lh,'tag','DPLC','buttonDownFcn',{@DotsPlace,'DOWN'});
+				th = text(p0(li).POS(1),p0(li).POS(2),s,'color','w','userdata',lh,'tag','DPLC','interpreter','none','buttonDownFcn',{@DotsPlace,'DOWN'});
 				set(lh,'userdata',th);
 			end;
 		end;
