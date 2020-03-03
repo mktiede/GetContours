@@ -16,6 +16,7 @@ function p = DotsTrack(fName, p0, varargin)
 %
 % initial P0 [1 x nPoints] as returned by DOTSPLACE or an existing series [nFrames x nPoints] 
 % as returned by a previous call to DOTSTRACK (in this case only existing frames can be modified)
+% by default will resume processing from the last completed frame; specify FRAMES to override
 %
 % the procedure will pause and display any frame where it has failed to successfully track
 % a point; in this frame the problematic location(s) will be displayed as a red "+" symbol
@@ -44,6 +45,7 @@ function p = DotsTrack(fName, p0, varargin)
 % mkt 01/15
 % mkt 10/15 support for names and structured points arrays
 % mkt 06/17 allow stepping without tracking (to move through invalid regions)
+% mkt 06/18 fix overrun on specified frames
 
 % callback handlers
 if nargin < 2, eval('help DotsTrack'); return; end;
@@ -100,6 +102,7 @@ if ~isempty(times) && isempty(frames),
 	f = floor(times*frameRate)+1;
 	for k = 1 : size(f,1), frames = [frames , f(k,1):f(k,2)]; end;
 end;
+frames(frames > nFrames) = [];		% delete out-of-range frames
 
 if size(p0,1) == 1,			% point template
 	if isempty(frames), frames = [1:nFrames]; end;
@@ -126,15 +129,25 @@ end;
 if length(frames) > length(unique(frames)),
 	error('FRAMES contains duplicates (must be unique)');
 end;
+if isempty(frames),
+	error('no specified FRAMES available in %s', fName);
+end;
+
+% get starting frame
+if size(p0,1) == 1,
+	idx = 1;
+else,
+	k = find(cellfun(@isempty,{p.STATUS}),1);
+	if isempty(k), idx = 1; else idx = k-1; end;	% last non-empty frame
+end;
 
 % display the first image
-img = GetMovieFrame(mh,frames(1));
+img = GetMovieFrame(mh,frames(idx));
 if ~isempty(xform), f = xform{1}; a = xform(2:end); img = f(img,a{:}); end;
 [fh,ih] = implot(img);
 set(fh,'userdata',0,'menubar','none');
 
 % display markers
-idx = 1;
 xy = cell2mat({p(idx,:).POS}');
 invalid = cell2mat({p(idx,:).STATUS});
 if isempty(invalid),
@@ -187,7 +200,6 @@ xy(invalid,:) = [];
 initialize(pt,xy,img);
 
 % tracking loop
-idx = 1; 				% current index into frames
 oIdx = idx;				% last valid index
 while 1,
 	if ~ishandle(fh), break; end;

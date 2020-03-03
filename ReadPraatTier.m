@@ -14,6 +14,8 @@ function [segs,labs,tier,tierNames,dur] = ReadPraatTier(fName,tier)
 %
 % returns SEGS offsets [nSegs x offs] and segment labels LABS [nSegs]
 % for specified tier (for interval tiers offs == head,tail)
+% filter labelled intervals using
+%    k = find(~cellfun(@isempty,labs)); ht = segs(k,:); labs = labs(k);
 %
 % optionally returns name of tier used (TIER), a list of all tiers (TIERNAMES),
 % and DURation (secs)
@@ -22,6 +24,7 @@ function [segs,labs,tier,tierNames,dur] = ReadPraatTier(fName,tier)
 
 % mkt 03/09
 % mkt 07/14 updated
+% mkt 01/18 negative offset support
 
 % parse args
 if nargin < 1,
@@ -117,17 +120,25 @@ if nTiers ~= length(tierNames),
 	error('expecting %d tiers, found %d', nTiers, length(tierNames));
 end;
 if nargout < 1,
-	fprintf('Tiers in %s:  "%s"', fName, tierNames{1});
-	if nTiers>1, fprintf(', "%s"', tierNames{2:end}); end
-	fprintf('\n');
+	fprintf('Tiers in %s\n', fName);
+	if ~isempty(pointTierNames),
+		fprintf('    Point:  "%s"', pointTierNames{1});
+		if length(pointTierNames)>1, fprintf(', "%s"', pointTierNames{2:end}); end
+		fprintf('\n');
+	end;
+	if ~isempty(intTierNames),
+		fprintf(' Interval:  "%s"', intTierNames{1});
+		if length(intTierNames)>1, fprintf(', "%s"', intTierNames{2:end}); end
+		fprintf('\n');
+	end;
 	return;
 end;
 
 % format data
 if isnumeric(tier),
 	tiers = [];
-	if ~isempty(pointTiers), tiers = [tiers, pointTiers]; end;
-	if ~isempty(intTiers), tiers = [tiers , intTiers]; end;
+	if ~isempty(pointTiers), tiers = [tiers ; pointTiers]; end;
+	if ~isempty(intTiers), tiers = [tiers ; intTiers]; end;
 	[tiers,k] = sort(tiers);
 	tierNames = tierNames(k);
 	tierStart = tiers(tier);
@@ -164,8 +175,8 @@ if isShort,
 	h = str2num(lines{tierStart+1});
 	t = str2num(lines{tierStart+2});
 else,
-	h = str2num(lines{tierStart+1}(regexp(lines{tierStart+1},' \d'):end));
-	t = str2num(lines{tierStart+2}(regexp(lines{tierStart+2},' \d'):end));
+	h = str2num(lines{tierStart+1}(regexp(lines{tierStart+1},' [-]*\d'):end));	% support negative values
+	t = str2num(lines{tierStart+2}(regexp(lines{tierStart+2},' [-]*\d'):end));
 end;
 if head ~= h || tail ~= t,
 	error('mismatch between tier (%.1f:%.1f) and file lengths (%.1f:%.1f)', h,t,head,tail);
@@ -205,7 +216,7 @@ else,
 		labs{k} = labs{k}(kk(1)+1:kk(2)-1);
 	end;
 	lines = reshape(lines(:,2:(M-1))',(M-2)*n,1);
-	idx = cell2mat(regexp(lines,' \d'));
+	idx = cell2mat(regexp(lines,' [-]*\d'));	% support negative
 	segs = zeros(length(lines),1);
 	for k = 1 : length(lines),
 		segs(k) = str2num(lines{k}(idx(k):end));
