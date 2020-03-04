@@ -104,7 +104,7 @@ function varargout = GetContours(varargin)
 % mkt 07/18 v2.1 fix TextGrid issues
 % mkt 10/18 v2.2 fix initialization overwrite bug
 % mkt 11/19 v2.3 mods for internal improvements
-% mkt 01/20 v2.4 bug fixes, scroller, DICOM, SLURP support (UltraFest IX release)
+% mkt 03/20 v2.4 bug fixes, scroller, DICOM, SLURP support (UltraFest IX release)
 
 % STATE (gcf userData) defines internal state for currently displayed frame
 % VNAME (defined in base ws) defines values for each visited frame
@@ -112,7 +112,7 @@ function varargout = GetContours(varargin)
 
 persistent PLAYERH
 
-GCver = 'v2.4 (BETA)';	% current version
+GCver = 'v2.4';	% current version
 
 if nargin < 1,
 	eval('help GetContours');
