@@ -1,8 +1,6 @@
 function varargout = GetContours(varargin)
 %GETCONTOURS  - extract contours from US movie frames
 %
-% BETA VERSION for testing
-%
 %	usage:  GetContours(fName, ...)     % to initialize
 %
 % displays current FRAME from movie or DICOM FNAME
