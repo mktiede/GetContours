@@ -45,6 +45,10 @@ v2.4 03MAR20 bug fixes, scroller, DICOM, SLURP support
 
 Copyright (C) 2015-2020 mark tiede
 
+Publications which make use of `gct_SLURP` should cite Laporte C & Ménard L. (2018). 
+Multi-hypothesis tracking of the tongue surface in ultrasound video recordings of normal
+and impaired speech.  _Medical Image Analysis_, 44, 98-114.
+
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 3 or any later version.
 
 This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.

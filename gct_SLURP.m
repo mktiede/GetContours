@@ -9,8 +9,9 @@ function r = gct_SLURP(action, state, varargin)
 %   make_snake (mex)          - CL implementation of Li et al. (2005) algorithm
 %   SLURP_Default_Model (mat) - default models for snake particle initialization
 %
-% cf. Laporte C & Ménard L. (2018). Multi-hypothesis tracking of the tongue surface in ultrasound 
-% video recordings of normal and impaired speech.  Medical Image Analysis, 44, 98-114.
+% Publications which make use of this software should cite Laporte C & Ménard L. (2018). 
+% Multi-hypothesis tracking of the tongue surface in ultrasound video recordings of normal 
+% and impaired speech.  Medical Image Analysis, 44, 98-114.
 
 % C. Laporte 11/19
 % mkt 01/20 various tweaks
