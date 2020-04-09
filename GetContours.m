@@ -1593,7 +1593,7 @@ if ~isempty(reSize) && reSize~=1,
 	end;
 
 % build interpolation indices
-	[ih,iw] = size(img);
+	[ih,iw,~] = size(img);
 	mih = floor(ih*reSize); miw = floor(iw*reSize);
 	[x,y] = meshgrid(1:(iw-1)/(miw-1):iw, 1:(ih-1)/(mih-1):ih);
 
