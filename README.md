@@ -14,7 +14,7 @@ annotate articulatory events of interest, allowing rapid selection of key frames
 
 * support for image pre-processing on loading (e.g. cropping, resizing, or custom enhancement)
 
-* optional ‘plug-in’ procedures support _**automated tracking**_ through sequences (e.g. _gct_Lines_, _gct_SLURP_)
+* optional ‘plug-in’ procedures support _**automated tracking**_ through sequences (e.g. _gct_Lines_, _gct_snake_, _gct_SLURP_)
 
 * incorporates Cathy Laporte's implementation of the **EdgeTrak** (Li et al. 2005) ‘snake’ active contour model for fitting the tongue surface using image forces
 
@@ -41,11 +41,12 @@ v2.0 05JUN18 support sequence tracking, tracking plugins
 v2.1 15JUL18 fix TextGrid issues  
 v2.2 01OCT18 fix initialization overwrite bug  
 v2.3 12NOV19 mods for internal improvements; use SLURP snake implementation  
-v2.4 03MAR20 bug fixes, scroller, DICOM, SLURP support
+v2.4 03MAR20 bug fixes, scroller, DICOM, SLURP support  
+v2.5 12AUG20 bug fixes, added gct_snake (UltraFest 2020 version)
 
 Copyright (C) 2015-2020 mark tiede
 
-Publications which make use of `gct_SLURP` should cite Laporte C & Ménard L. (2018). 
+Publications which make use of `gct_SLURP` should cite Laporte C & Ménard L. (2018).
 Multi-hypothesis tracking of the tongue surface in ultrasound video recordings of normal
 and impaired speech.  _Medical Image Analysis_, 44, 98-114.
 

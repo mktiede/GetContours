@@ -15,6 +15,7 @@ function r = gct_SLURP(action, state, varargin)
 
 % C. Laporte 11/19
 % mkt 01/20 various tweaks
+% mkt 08/20 UltraFest IX release
 
 %	branch by ACTION
 
@@ -118,16 +119,9 @@ switch upper(action),
 
 
 %-----------------------------------------------------------------------------
-% SAVE:  save tracker data as variable in base ws
+% SAVE:  save tracker data as variable in base ws (UNUSED)
 %
-%	returns nothing
-%
-% this handler saves TRKRES data as VNAME_trk, formatted as [nFrames x X,Y,%,I x nAnchorPairs]
-% tracking data:  [nAnchors x X,Y, percent of line segment & intensity at intersection]
-% assumes consistent number of anchors each frame
-
-	case 'SAVE',
-		keyboard	
+		
 		
 %-----------------------------------------------------------------------------
 % TRACK:  track current frame handler
@@ -135,6 +129,8 @@ switch upper(action),
 %	returns updated STATE variable on success, [] on failure
 %
 % 	varargin{1} is nonzero on first track of a sequence
+%
+% TRKRES returns normalized energy and particle count for frame fit
 
 	case 'TRACK',
 		firstTime = varargin{1};
@@ -154,7 +150,7 @@ switch upper(action),
 		[state.TPAR,xy,energy,nParticles] = DoTrack(img, state.TPAR, init_pts, firstTime);
 		k = [0 ; cumsum(sqrt(sum(diff(xy).^2,2)))];		
 		state.XY = interp1(k, xy, linspace(0, k(end), state.NPOINTS)', 'pchip');
-		set(state.CLH,'xdata',xy(:,1),'ydata',xy(:,2));
+		set(state.CLH,'xdata',state.XY(:,1),'ydata',state.XY(:,2));
 		state.ANCHORS = interp1(k, xy, linspace(0, k(end), nAnchors)', 'pchip');
 		for k = 1 : nAnchors,				% redistribute anchors
 			set(state.ALH(k),'xdata',state.ANCHORS(k,1),'ydata',state.ANCHORS(k,2));
@@ -202,7 +198,7 @@ nPoints = 39;
 
 dPar = struct('ID', idString, ...
 				'MNAME', defaultModelFname, ...		% default models mat file
-				'CMAP', 'gray', ...					% colormap name
+				'CMAP', 'gray', ...					% diagnostic map colormap name
 				'SIGMA', 5, ...						% image forces Gaussian sigma
 				'DELTA', 2, ...						% delta
 				'BPEN', 2, ...						% band penalty
@@ -227,6 +223,9 @@ tPar = state.TPAR;
 dPar = DefCfg(idString);
 if isempty(tPar) || ~strcmp(tPar.ID, idString), 
 	tPar = dPar; 
+	if firstTime,
+		state.TMH(end+1) = uimenu(get(state.TMH(1),'parent'),'label','Show Diagnostics','callback',{@GetContours,'TRACK','DIAGNOSTICS'});
+	end;
 	try,
 		dm = load(fullfile(fileparts(which(idString)),dPar.MNAME));
 		nPoints = round(length(dm.ShapeData.x_mean)/2);	% 39
@@ -446,6 +445,7 @@ maxp = uicontrol(cfg, ...
 	'Position', [0.7483 0.1346 0.1690 0.0577]);
 	
 % OK, Defaults, cancel buttons
+if firstTime, es = 'off'; else, es = 'on'; end;		% cancel not permitted first time (initialization)
 uicontrol(cfg, ...
 	'String','OK', ...
 	'FontSize', 10, ...
@@ -459,6 +459,7 @@ uicontrol(cfg, ...
 	'Units', 'normalized', ...
 	'Position', [0.3931 0.0359 0.2069 0.0641]);
 uicontrol(cfg, ...
+	'enable', es, ...
 	'String','Cancel', ...
 	'FontSize', 10, ...
 	'Callback','set(gcbf,''UserData'',0);uiresume', ...

@@ -102,7 +102,8 @@ function varargout = GetContours(varargin)
 % mkt 07/18 v2.1 fix TextGrid issues
 % mkt 10/18 v2.2 fix initialization overwrite bug
 % mkt 11/19 v2.3 mods for internal improvements
-% mkt 03/20 v2.4 bug fixes, scroller, DICOM, SLURP support (UltraFest IX release)
+% mkt 03/20 v2.4 bug fixes, scroller, DICOM, SLURP support
+% mkt 08/20 v2.5 minor bug fixes, add gct_snake (UltraFest IX release)
 
 % STATE (gcf userData) defines internal state for currently displayed frame
 % VNAME (defined in base ws) defines values for each visited frame
@@ -110,7 +111,7 @@ function varargout = GetContours(varargin)
 
 persistent PLAYERH
 
-GCver = 'v2.4';	% current version
+GCver = 'v2.5';	% current version
 
 if nargin < 1,
 	eval('help GetContours');
@@ -259,7 +260,7 @@ switch upper(varargin{1}),
 			return;
 		end;
 		state = get(gcbf,'userdata');
-		set(state.TMH(4),'checked','off');		% ensure tracking disabled
+		set(state.TMH(3),'checked','off');		% ensure tracking disabled
 		v = evalin('base',state.VNAME);
 		frames = cell2mat({v.FRAME});			% frames with data
 		f = state.CURFRAME;
@@ -608,7 +609,7 @@ switch upper(varargin{1}),
 					f = state.NFRAMES;
 				end;
 			case 'SCROLL',
-				set(state.TMH(4),'checked','off');		% ensure tracking disabled
+				set(state.TMH(3),'checked','off');		% ensure tracking disabled
 				f = round(get(state.SCROLLERH,'value'));
 				if f < 1, f = 1; elseif f > state.NFRAMES, f = state.NFRAMES; end;
 			case {'KPREV','KNEXT'},
@@ -923,9 +924,8 @@ switch upper(varargin{1}),
 		set(gcbf,'pointer','arrow');
 		k = [0 ; cumsum(sqrt(sum(diff(xy).^2,2)))];		
 		state.XY = interp1(k, xy, linspace(0, k(end), state.NPOINTS)', 'pchip');
-		set(state.CLH,'xdata',xy(:,1),'ydata',xy(:,2));
-		k = [0 ; cumsum(sqrt(sum(diff(state.XY).^2,2)))];
-		state.ANCHORS = interp1(k, state.XY, linspace(0, k(end), nAnchors)', 'pchip');
+		set(state.CLH,'xdata',state.XY(:,1),'ydata',state.XY(:,2));
+		state.ANCHORS = interp1(k, xy, linspace(0, k(end), nAnchors)', 'pchip');
 		for k = 1 : nAnchors,				% redistribute anchors
 			set(state.ALH(k),'xdata',state.ANCHORS(k,1),'ydata',state.ANCHORS(k,2));
 		end;
@@ -978,15 +978,9 @@ switch upper(varargin{1}),
 			case 'EXPORT', 		% export tracker data to file
 				state.TRACKER('EXPORT', state);
 				
-			case 'SAVE', 		% save tracker data to base ws
-				state.TRACKER('SAVE', state);
-				
 			case 'CONFIG',		% configure tracker
 				cfg = state.TRACKER('CONFIG', state, 0);
 				if ~isempty(cfg), state.TPAR = cfg; end;
-				
-			case 'DIAGNOSTICS', % show tracker diagnostics
-				state.TRACKER('DIAGS', state);
 				
 			case 'APPLY',		% apply tracker to current frame
 				if isempty(state.TPAR),
@@ -1019,7 +1013,7 @@ switch upper(varargin{1}),
 % track thru sequence
 				kf = state.KEYFRAMES;
 				if isempty(kf), kf = [1 state.NFRAMES]; end;
-				while strcmpi('on',get(state.TMH(4),'checked')),
+				while strcmpi('on',get(state.TMH(3),'checked')),
 					f = state.CURFRAME + 1;
 					k = find(f>=kf(:,1) & f<=kf(:,2));
 					if isempty(k), break; end;			% end of interval
@@ -1045,6 +1039,16 @@ switch upper(varargin{1}),
 				end;
 				set(gcbf,'pointer','arrow'); drawnow;
     
+			case 'SAVE', 		% save tracker data to base ws (note: save option must be added to menu explicitly by tracker; cf. gct_lines)
+				state.TRACKER('SAVE', state);
+				
+			case 'CONFIG',		% configure tracker
+				cfg = state.TRACKER('CONFIG', state, 0);
+				if ~isempty(cfg), state.TPAR = cfg; end;
+				
+			case 'DIAGNOSTICS', % show tracker diagnostics (note: save option must be added to menu explicitly by tracker; cf. gct_SLURP)
+				state.TRACKER('DIAGS', state);
+				
 		end;
 		set(gcbf,'userData',state);
   
@@ -1593,7 +1597,7 @@ if ~isempty(reSize) && reSize~=1,
 	end;
 
 % build interpolation indices
-	[ih,iw,~] = size(img);
+	[ih,iw] = size(img);
 	mih = floor(ih*reSize); miw = floor(iw*reSize);
 	[x,y] = meshgrid(1:(iw-1)/(miw-1):iw, 1:(ih-1)/(mih-1):ih);
 
@@ -2099,9 +2103,10 @@ uimenu(menu,'label','Delete Anchors', ...
 uimenu(menu,'label','Undo Last Change', ...
 			'accelerator','Z',...
 			'callback',{@GetContours,'UNDO',1});
-
+if exist('make_snake') == 3, e = 'on'; else, e = 'off'; end;
 uimenu(menu,'label','Apply Snake', ...
 			'separator','on', ...
+			'enable', e, ...
 			'accelerator', 'N', ...
 			'callback',{@GetContours,'SNAKE'});
 uimenu(menu,'label','Image Forces', ...
@@ -2164,22 +2169,16 @@ uimenu(menu,'label','Select...', ...
 tmh(2) = uimenu(menu,'label','Export Tracker Data...', ...
 			'enable',e, ...
 			'callback',{@GetContours,'TRACK','EXPORT'});
-tmh(3) = uimenu(menu,'label','Save Tracker Data to base ws', ...
-			'enable',e, ...
-			'callback',{@GetContours,'TRACK','SAVE'});
 if isempty(keyFrames), ee = 'off'; else, ee = 'on'; end;
-tmh(4) = uimenu(menu,'label','Track thru Sequence', ...
+tmh(3) = uimenu(menu,'label','Track thru Sequence', ...
 			'enable',e, ...
 			'checked', ee, ...
 			'accelerator','K', ...
 			'callback',cbs);
-tmh(5) = uimenu(menu,'label','Apply Tracking', ...
+tmh(4) = uimenu(menu,'label','Apply Tracking', ...
 			'accelerator','T', ...
 			'enable',e, ...
 			'callback',{@GetContours,'TRACK','APPLY'});
-tmh(6) = uimenu(menu,'label','Show Diagnostics', ...
-			'enable',e, ...
-			'callback',{@GetContours,'TRACK','DIAGNOSTICS'});
 		
 % init internal state
 state = struct('IH', ih, ...				% image handle
@@ -2187,7 +2186,7 @@ state = struct('IH', ih, ...				% image handle
 				'TH', th, ...				% frame text handle
 				'LH', lh, ...				% annotation text handle
 				'NH', nh, ...				% inherit anchors menu handle
-				'TMH', tmh, ...				% tracking menu handles (1: name, 2: export, 3: save, 4: config, 5: track, 6: apply)
+				'TMH', tmh, ...				% tracking menu handles (1: name, 2: export, 3: track, 4: apply, 5: diag)
 				'FRAMEH', frameH, ...		% frame box handle
 				'SCROLLERH', scrollerH, ...	% scroller handle
 				'CLIM', clim, ...			% original contrast limits
