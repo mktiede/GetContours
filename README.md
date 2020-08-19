@@ -1,7 +1,8 @@
 GetContours  
 ==
 
-![Example](SLURP.png)
+![SLURP Example](SLURP.png)
+Example showing result of automated tracking using gct_SLURP, showing best-fitting contour at left with superimposed interactively adjustable spline anchor points, and fit diagnostics at left
 
 **GetContours** is a Matlab-based platform that provides straightforward click-and-drag positioning of reference points controlling a cubic spline fit to a displayed ultrasound image of the midsagittal tongue surface. This fit – the “contour” – provides a discretized representation of the tongue suitable for subsequent analysis. Contour fitting may be either interactive, driven by image forces, or automated through sequences. Features of the program include:
 
@@ -22,7 +23,12 @@ annotate articulatory events of interest, allowing rapid selection of key frames
 
 * contours may be exported to tab-delimited text files, and converted to wide or EdgeTrak formats using _ReshapeContours_
 
+* support for estimating Fourier fit coefficients from contour shape (Liljencrants 1971)
+
 * separate _DotsPlace_, _DotsTrack_ procedures can be used to track image features from co-collected video to generate e.g. head-centric correction signals for extracted contours
+
+![SHAPE Example](SHAPE.png)
+Example illustrating Fourier coefficient shape fitting
 
 See `help GetContours` within Matlab for usage and examples.
 
@@ -42,7 +48,8 @@ v2.1 15JUL18 fix TextGrid issues
 v2.2 01OCT18 fix initialization overwrite bug  
 v2.3 12NOV19 mods for internal improvements; use SLURP snake implementation  
 v2.4 03MAR20 bug fixes, scroller, DICOM, SLURP support  
-v2.5 12AUG20 bug fixes, added gct_snake (UltraFest 2020 version)
+v2.5 12AUG20 bug fixes, added gct_snake (UltraFest 2020 version)  
+v2.6 19AUG20 support for Fourier coefficient shape fitting
 
 Copyright (C) 2015-2020 mark tiede
 

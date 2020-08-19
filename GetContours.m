@@ -20,6 +20,9 @@ function varargout = GetContours(varargin)
 %   IMGMOD   - procedure applied to every image before loading (e.g. @histeq)
 %   FRAME    - initial frame to display (default is first keyframe, first if none)
 %   KEYFRAME - key frame list (default none)
+%   MPP      - mm/pixel ratio (default none)
+%   NPOINTS  - number of points / contour (default 100)
+%   ORIGIN   - probe origin [X,Y] in ULC pixel coordinates (default none)
 %   RESIZE   - resize displayed image by specified factor (applies after any cropping)
 %   TEXTGRID - Praat TextGrid and tier to parse for key frames (see examples)
 %               note that only labeled intervals are used but all point labels used
@@ -47,6 +50,8 @@ function varargout = GetContours(varargin)
 % before closing the GetContours window using
 %   [contours,frames,images] = GetContours('EMIT');   % [nRows x nCols x nFrames] images
 %   contour = GetContours('EMIT',FRAME);   % emit only specified frame(s)
+% coordinates are in ULC-origin pixel units [NPOINTS x X,Y]; if origin and mm/pixel values 
+% available two additional columns give origin-centered mm values
 %
 % to extract contours from VNAME use 
 %   contours = reshape(cell2mat({VNAME.XY}),[NPOINTS 2 length(VNAME)]);
@@ -103,7 +108,8 @@ function varargout = GetContours(varargin)
 % mkt 10/18 v2.2 fix initialization overwrite bug
 % mkt 11/19 v2.3 mods for internal improvements
 % mkt 03/20 v2.4 bug fixes, scroller, DICOM, SLURP support
-% mkt 08/20 v2.5 minor bug fixes, add gct_snake (UltraFest IX release)
+% mkt 08/20 v2.5 minor bug fixes, COEF support, add gct_snake (UltraFest IX release)
+% mkt 08/20 v2.6 Fourier coef shape fitting support
 
 % STATE (gcf userData) defines internal state for currently displayed frame
 % VNAME (defined in base ws) defines values for each visited frame
@@ -111,7 +117,7 @@ function varargout = GetContours(varargin)
 
 persistent PLAYERH
 
-GCver = 'v2.5';	% current version
+GCver = 'v2.6';	% current version
 
 if nargin < 1,
 	eval('help GetContours');
@@ -240,6 +246,106 @@ switch upper(varargin{1}),
 		SaveVar(v, state.VNAME);							% write MAT file		
 
 
+%-----------------------------------------------------------------------------
+% COEF:  map shape to Fourier coefficients (requires defined contour, origin & MPP)
+
+	case 'COEF',
+		state = get(gcbf,'userData');
+		nc = 3;		% # coefficients
+		nAnchors = size(state.ANCHORS,1);
+		np = state.NPOINTS;
+		gLen = 5;
+		if nAnchors < 3, 
+			fprintf('Coefficient estimation requires at least three anchor points\n');
+			return;
+		end;
+		xy = state.XY;
+		k = [0 ; cumsum(sqrt(sum(diff(xy).^2,2)))];		
+		xy = interp1(k, xy, linspace(0, k(end), np)', 'pchip');
+		[h,w] = size(get(state.IH,'cdata'));
+		xy(:,1) = xy(:,1) - state.ORIGIN(1);
+		xy(:,2) = state.ORIGIN(2) - xy(:,2);
+		xy = (xy * state.MPP) / (.8 * 10);	% convert to cm:  distance along Liljencrants tongue with schwa is 14.4 "cm", 14.4/18 = .8
+		xy(:,2) = xy(:,2) - max(xy(:,2)) + 3;	% default DC = 3 cm
+		[glx,gly] = MakeGrid(np, gLen, .1, 0);
+		if xy(1,1) < 0, xy = flipud(xy); end;	% want first point to be anterior
+		xy0 = xy;
+
+		if xy(1,2) > 0,				% extrapolate to last polar gridline
+			d = hypot(xy(1,1),xy(1,2));
+			xy = [[d,0] ; xy];
+		end;
+		if xy(end,2) > gly(2,end),	% extrapolate to last pharyngeal gridline
+			xy = [xy ; [xy(end,1),gly(2,end)]];
+		end;
+		k = find(xy(:,2) < gly(2,end));
+		xy(k,:) = [];
+		d = ShapeToDist(xy, glx, gly);			% distance function (lips to larynx)
+		[DC,C,S,mag,phi] = DistToCoef(d, nc);	% fitted coefficients
+		
+		fprintf('\nFourier Coefficients describing current contour (Frame %d):',state.CURFRAME);
+		fprintf('\n  DC: %5.2f',DC);
+		fprintf('\n Cos:'); fprintf(' %5.2f',C);
+		fprintf('\n Sin:'); fprintf(' %5.2f',S);
+		fprintf('\n Mag:'); fprintf(' %5.2f',mag); fprintf('  (constriction degree)');
+		fprintf('\n Phi:'); fprintf(' %5.1f',phi*180/pi); fprintf('  (constriction location, in degrees)\n');
+	
+% adjust semi-polar gridlines
+		idx = find(diff(gly),1,'last');		% index of first pharyngeal gridline
+		th = cart2pol(glx(1,1:idx),gly(1,1:idx));
+		[x,y] = pol2cart(th,d(1:idx));
+		[glx(2,1:idx),gly(2,1:idx)] = pol2cart(th,.5);
+
+% adjust pharyngeal gridlines
+		N = size(glx,2);						% # grid lines
+		y(idx:N) = gly(1,idx:N);
+		x(idx:N) = d(idx:N);
+		xy = [x(:),y(:)];
+		flipped = diff(glx(:,end)) > 0;
+		if flipped,			% faces right
+			xy(idx:end,1) = -xy(idx:end,1); 
+			glx(2,idx:end) = -.5;
+		end;
+		
+% captions
+		s{1} = sprintf(' DC = %5.2f', DC);
+		s{2} = ['Cos =', sprintf('%6.2f',C)];
+		s{3} = ['Sin =', sprintf('%6.2f',S)];
+		s{4} = ['Mag =', sprintf('%6.2f',DC+sqrt(C.^2 + S.^2))];
+		s{5} = ['Phi =', sprintf('%6.2f',phi*180/pi)];
+
+		[xy,d] = CoefToShape(C, S, DC, glx, gly);
+
+		figure('position',[35 571 560 420],'name',sprintf('Frame %04d', state.CURFRAME));
+		axes('position',[.1 .75 .82 .2])
+		h = plot(d,'linewidth',2);
+		hh = line(get(gca,'xlim'),[DC;DC],'color','k');
+		cs = {'DC'}; for k = 1 : length(h), cs{end+1} = sprintf('Coef %d',k); end; 
+		legend([hh;h],cs{:});
+		ylabel('Magnitude (cm)'); grid on;
+		x = round([0:8]*N/8);
+		for k = 1 : length(x), xs{k} = sprintf('%d',(k-1)*45-180); end;
+		set(gca,'ylim',[0 gLen], 'xlim',[1 N], 'xtick',x, 'xticklabel',xs);
+		text(1,gLen+.1,'Lips','fontSize',11,'verticalAlignment','bottom');
+		text(N,gLen+.1,'Larynx','fontSize',11,'verticalAlignment','bottom','horizontalAlignment','right');
+		text(N/2,gLen+.1,'Phase (degrees)','fontSize',12,'verticalAlignment','bottom','horizontalAlignment','center');
+
+		axes('position',[.1 .08 .82 .6]);
+		line(glx,gly,'color',[.8 .8 .8]); 
+		k = round([0:8]*N/8);
+		k(1) = 1;
+		line(glx(:,k),gly(:,k),'color','b');
+		box on; hold on;
+		h = plot(xy0(:,1),xy0(:,2),'r','linewidth',2);
+		k = [0 ; cumsum(sqrt(sum(diff(xy).^2,2)))];		
+		xy = interp1(k, xy, linspace(0, k(end), state.NPOINTS)', 'pchip');
+		h(2) = plot(xy(:,1),xy(:,2),'color',[0 .7 0],'linewidth',2);
+		set(gca,'xlim',(gLen+.1)*[-1 1],'ylim',(gLen+.1)*[-1 1]);
+		axis equal; ylabel('cm');
+		legend(h,'contour','fit','location','northeast');
+		for k = 1 : 5, text(2,-(k/2+1),s{k},'fontname','Courier','fontsize',10,'color','k'); end
+	
+	
 %-----------------------------------------------------------------------------
 % CONFIG:  configure
 
@@ -467,6 +573,8 @@ switch upper(varargin{1}),
 	
 %-----------------------------------------------------------------------------
 % EMIT:  export contours to workspace
+%
+% coordinates include mm values relative to origin if mm/pixel factor and origin available
 
 	case 'EMIT',
 		fh = findobj('tag','GETCONTOURS');
@@ -487,7 +595,14 @@ switch upper(varargin{1}),
 			contours = contours(:,:,k);
 			frames = frames(k);
 		end;
-		varargout{1} = contours;
+		if (~isempty(state.MPP) && ~isempty(state.ORIGIN)),		% emit mm coordinates
+			mmc(:,1,:) = contours(:,1,:) - state.ORIGIN(1);
+			mmc(:,2,:) = state.ORIGIN(2) - contours(:,2,:);		% flip	
+			mmc = mmc * state.MPP;
+			varargout{1} = [contours , mmc];
+		else,													% emit pixel coordinates
+			varargout{1} = contours;
+		end;
 		if nargout > 1,
 			varargout{2} = frames;
 			if nargout > 2,		% include images
@@ -511,7 +626,7 @@ switch upper(varargin{1}),
 		fh = gcbf;
 		if isempty(fh), fh = findobj('tag','GETCONTOURS'); end;
 		state = get(fh,'userData');
-		[fName,pName] = uiputfile('*.tsv','Export Contours to tab-delimited text file',[state.PARAMS.FNAME,'.txt']);
+		[fName,pName] = uiputfile('*.tsv','Export Contours to tab-delimited text file',state.PARAMS.FNAME);
 		if fName == 0, return; end;		% cancel
 		
 		v = evalin('base',state.VNAME);			
@@ -720,6 +835,8 @@ switch upper(varargin{1}),
 		mpp = 10*cm/dy;
 		state.MPP = mpp;
 		set(fh, 'userdata', state);
+		if (~isempty(state.MPP) && ~isempty(state.ORIGIN)), es = 'on'; else, es = 'off'; end;
+		set(state.FCH,'enable',es);
 		if nargout < 1,
 			fprintf('mm / pixel ratio: %.3f\n', mpp);
 		else,
@@ -791,6 +908,8 @@ switch upper(varargin{1}),
 	
 		state.ORIGIN = origin;
 		set(fh, 'userdata', state);
+		if (~isempty(state.MPP) && ~isempty(state.ORIGIN)), es = 'on'; else, es = 'off'; end;
+		set(state.FCH,'enable',es);
 		if nargout < 1,
 			fprintf('Origin (center of circle fit to probe surface, pixels):  [%.1f %.1f]\n', origin);
 		else,
@@ -1098,6 +1217,46 @@ end;
 
 
 %=============================================================================
+% COEFTOSHAPE  - map Fourier coefficients to tongue shape
+
+function [xy,d,mag,phi] = CoefToShape(C, S, DC, glx, gly)
+
+C = C(:); S = S(:);
+N = size(glx,2);					% # grid lines
+gLen = abs(glx(1,end));				% grid line length
+n = [0 : N-1];
+k = [1 : length(C)]';
+
+% distance function (lips to larynx)
+dd = C*ones(1,N).*cos(2*pi*k*n./N) + S*ones(1,N).*sin(2*pi*k*n./N);		
+d = DC + sum(dd,1);		% composite
+dd = DC + dd;			% contribution by coef
+
+% semi-polar gridlines
+idx = find(diff(gly),1,'last');		% index of first pharyngeal gridline
+th = cart2pol(glx(1,1:idx),gly(1,1:idx));
+[x,y] = pol2cart(th,d(1:idx));
+[glx(2,1:idx),gly(2,1:idx)] = pol2cart(th,.5);
+
+% pharyngeal gridlines
+y(idx:N) = gly(1,idx:N);
+x(idx:N) = d(idx:N);
+xy = [x(:),y(:)];
+flipped = diff(glx(:,end)) > 0;
+if flipped,			% faces right
+	xy(idx:end,1) = -xy(idx:end,1); 
+	glx(2,idx:end) = -.5;
+end;	
+
+% magnitude (constriction degree) and phase (constriction location)
+mag = sqrt(C.^2 + S.^2);
+phi = (180/pi)*atan(S./C)./k;
+
+% return distance function as [N x nCoef]
+d = dd';
+
+
+%=============================================================================
 % COMPUTEIMAGEFORCES  - computes Gaussian-filtered image derivatives
 
 function img = ComputeImageForces(img, sigma)
@@ -1108,6 +1267,25 @@ d = 2*pi*sigma^4;
 ix = imfilter(img, -(x./d).*g);
 iy = imfilter(img, -(y./d).*g);
 img = 1 - sqrt(ix.*ix + iy.*iy);
+
+
+%=============================================================================
+% DISTTOCOEF  - compute Fourier coefficients from VT distance function
+
+function [DC,C,S,mag,phase] = DistToCoef(d, nCoef)
+
+d = d(:)';
+N = length(d);
+n = [0:N-1];
+if nCoef > floor(N/2), nCoef = floor(N/2); end;
+k = [1 : nCoef]';
+
+DC = 1/N * nansum(d);
+C = 2/N * nansum(cos(2*pi*k*n./N) .* (ones(length(k),1)*d) , 2);
+S = 2/N * nansum(sin(2*pi*k*n./N) .* (ones(length(k),1)*d) , 2);
+
+mag = sqrt(C.^2 + S.^2);
+phase = atan(S./C);
 
 
 %=============================================================================
@@ -1146,7 +1324,7 @@ fn = uicontrol(cfg, ...
 si = uicontrol(cfg, ...
 	'Style', 'checkbox', ...
 	'HorizontalAlignment', 'left', ...
-	'String', 'Save Images on Export', ...
+	'String', 'Save Images', ...
 	'Value', dPar.SAVEIMG, ...
 	'FontSize', 10, ...
 	'Units', 'normalized', ...
@@ -1822,7 +2000,9 @@ crop = [];
 inherit = 0;
 keyFrames = [];
 first = [];
+mpp = [];
 nPoints = 100;
+origin = [];
 reSize = [];
 textgrid = [];
 ImageMod = [];
@@ -1841,7 +2021,9 @@ for ai = 2 : 2 : length(varargin),
 		case 'IMGMOD', ImageMod = varargin{ai}; 
 		case 'FRAME', first = varargin{ai};
 		case 'KEYFRAME', keyFrames = varargin{ai};
+		case 'MPP', mpp = varargin{ai};
 		case 'NPOINTS', nPoints = varargin{ai};
+		case 'ORIGIN', origin = varargin{ai};
 		case 'RESIZE', reSize = varargin{ai};
 		case 'TEXTGRID',textgrid = varargin{ai};
 		case 'TRACKER', Tracker = varargin{ai};
@@ -2044,6 +2226,10 @@ uimenu(menu,'label','Find mm/pixel...', ...
 			'callback',{@GetContours,'MPP'});
 uimenu(menu,'label','Find Origin...', ...
 			'callback',{@GetContours,'ORIGIN'});
+if ~isempty(mpp) && ~isempty(origin), fce = 'on'; else, fce = 'off'; end;
+fch = uimenu(menu,'label','Fourier Coefficients', ...
+			'enable', fce, ...
+			'callback',{@GetContours,'COEF'});
 
 uimenu(menu,'label','Previous Frame', ...
 			'separator','on', ...
@@ -2185,6 +2371,7 @@ state = struct('IH', ih, ...				% image handle
 				'MH', mh, ...				% movie handle
 				'TH', th, ...				% frame text handle
 				'LH', lh, ...				% annotation text handle
+				'FCH', fch, ...				% Fourier coefs menu handle
 				'NH', nh, ...				% inherit anchors menu handle
 				'TMH', tmh, ...				% tracking menu handles (1: name, 2: export, 3: track, 4: apply, 5: diag)
 				'FRAMEH', frameH, ...		% frame box handle
@@ -2217,8 +2404,8 @@ state = struct('IH', ih, ...				% image handle
 				'FNAME', fName, ...			% movie name (w/o path and extension)
 				'FNAMEEXT', fNameExt, ...	% full movie name
 				'VNAME', vName, ...			% emit array name
-				'MPP', [], ...				% mm per pixel factor
-				'ORIGIN', [], ...			% origin
+				'MPP', mpp, ...				% mm per pixel factor
+				'ORIGIN', origin, ...		% origin
 				'DEFPAR', [], ...			% defaults
 				'PARAMS', []);				% parameters
 state.LABELS = labs;
@@ -2279,6 +2466,64 @@ end;
 
 % set internal state
 set(fh, 'userdata', state);
+
+
+%===============================================================================
+% ISPC  - returns true for PCWIN versions of Matlab
+
+function result = ispc
+
+result = strncmp(computer,'PC',2);
+
+
+%===============================================================================
+% LINEINTERSECT  - returns intersection of lines determined by A and B
+
+function [intersectPt, cross] = LineIntersect(A, B)
+
+X = 1; Y = 2;
+FixRoundOffErr = inline('round(v*1e10)*1e-10', 'v');
+
+denom = A(1,X) * (B(2,Y) - B(1,Y)) + ...
+		A(2,X) * (B(1,Y) - B(2,Y)) + ...
+		B(2,X) * (A(2,Y) - A(1,Y)) + ...
+		B(1,X) * (A(1,Y) - A(2,Y));
+
+intersectPt = [];
+cross = [];
+if ~denom, return; end;				% lines are coincident or parallel
+
+s = FixRoundOffErr( (	A(1,X) * (B(2,Y) - B(1,Y)) + ...
+						B(1,X) * (A(1,Y) - B(2,Y)) + ...
+						B(2,X) * (B(1,Y) - A(1,Y))) / denom );
+	  
+t = FixRoundOffErr(-( 	A(1,X) * (B(1,Y) - A(2,Y)) + ...
+						A(2,X) * (A(1,Y) - B(1,Y)) + ...
+						B(1,X) * (A(2,Y) - A(1,Y))) / denom);
+		
+intersectPt = FixRoundOffErr([(A(1,X) + s * (A(2,X) - A(1,X))) (A(1,Y) + s * (A(2,Y) - A(1,Y)))]);
+cross = (0<=s & s<=1 & 0<=t & t<=1);
+
+
+%===============================================================================
+% MAKEGRID  - build semi-polar grid
+
+function [glx,gly] = MakeGrid(N, len, res, flp)
+
+% find polar gridlines with RES separation at GL/2
+dth = 2*asin(res/len);
+th = linspace(0,pi,pi/dth);
+[glx,gly] = pol2cart(th,len);
+glx(2,:) = zeros(1,length(glx));
+gly(2,:) = zeros(1,length(gly));
+
+% find vertical gridlines; adjust vertical resolution to distance between polar line midpoints
+adjRes = mode(sqrt(sum(diff([mean(glx)' , mean(gly)']).^2,2)));
+dy = -adjRes : -adjRes : -len;
+gly = [gly , [dy;dy]];
+glx = [glx , [-ones(1,length(dy))*len ; zeros(1,length(dy))]];
+
+if flp, glx = -glx; end;
 
 
 %===============================================================================
@@ -2417,6 +2662,55 @@ vName = fName;
 vs = vName;
 eval([vName '=var;save ' fName ' ' vs]);
 fprintf('wrote %s.mat\n', fName);
+
+
+%===============================================================================
+% SHAPETODIST  - map tongue contour to unwrapped VT distance function
+
+function [d,xyi] = ShapeToDist(xy, glx, gly)
+
+res = 100;				% comparison resolution (nPoints)
+
+% resample contour to 100 equally spaced points
+k = [0 ; cumsum(sqrt(sum(diff(xy).^2,2)))];
+xy = interp1(k,xy,linspace(0,k(end),res),'pchip');
+
+% find intersection of each gridline with contour
+nLines = size(glx,2);
+xyi = NaN(nLines,2);
+d = NaN(nLines,1);
+n = ones(1,res);
+for gi = 1 : nLines,
+	x = linspace(glx(1,gi),glx(2,gi),res);
+	y = interp1(glx(:,gi),gly(:,gi),x);
+	
+% distance between every point of contour (rows) with every point of interpolated gridline (cols)
+	dist = sqrt((xy(:,1)*n-n'*x).^2+(xy(:,2)*n-n'*y).^2);
+	[~,k] = min(dist(:));
+	[r,c] = ind2sub(size(dist),k);			% minimum distance contour point
+
+% indices of bracketing contour point
+	if r == 1,
+		idx = [1 2];
+	elseif r == res,
+		idx = [res-1 res];
+	else,
+		idx = [r-1 r+1];
+	end;
+
+% compute intersection
+	[p,cross] = LineIntersect(xy(idx,:),[glx(:,gi),gly(:,gi)]);
+	if ~cross, continue; end;			% no intersection with this gridline
+	xyi(gi,:) = p;
+
+% compute distance along line
+	if gly(1,gi) && diff(gly(:,gi)) == 0,	% pharyngeal section
+		d(gi) = abs(p(1));
+	else,
+		d(gi) = sqrt(sum(p.^2));			% polar section
+	end;
+
+end;
 
 
 %===============================================================================
