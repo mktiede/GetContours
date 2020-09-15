@@ -49,7 +49,9 @@ v2.2 01OCT18 fix initialization overwrite bug
 v2.3 12NOV19 mods for internal improvements; use SLURP snake implementation  
 v2.4 03MAR20 bug fixes, scroller, DICOM, SLURP support  
 v2.5 12AUG20 bug fixes, added gct_snake (UltraFest 2020 version)  
-v2.6 19AUG20 support for Fourier coefficient shape fitting
+v2.6 19AUG20 support for Fourier coefficient shape fitting  
+v2.7 26AUG20 support preseeded anchors  
+v2.8 15SEP20 fix DICOM close  
 
 Copyright (C) 2015-2020 mark tiede
 

@@ -13,7 +13,8 @@ function varargout = GetContours(varargin)
 % use menu entries to adjust anchor points and image display
 %
 % supported optional 'NAME',VALUE parameter pairs:
-%   CLEAN    - ignore any previous data if 'T'
+%   ANCHORS  - seed initial frame with these anchor points [nAnchors x X,Y]
+%   CLEAN    - ignore any previous data if true (logical 1)
 %   CONFIG   - a struct specifying display properties to modify; valid fields are
 %                DOTSIZE, DOTCOLOR, LINEWIDTH, LINECOLOR
 %   CROP     - crop displayed image to cropped rectangle [Xmin Ymin width height]
@@ -69,8 +70,8 @@ function varargout = GetContours(varargin)
 %   GetContours('movie.avi', 'TEXTGRID',{'foo','frame'})
 % if no tier name specified loads from the first tier found
 %   GetContours('movie.avi', 'TEXTGRID','foo')
-% specify key frames directly
-%   GetContours('movie.avi', 'KEYFRAMES',[23:47 123 247:319])
+% specify key frames directly, ignore any previous data
+%   GetContours('movie.avi', 'KEYFRAMES',[23:47 123 247:319], 'CLEAN',true)
 % 
 % Example:  crop image, use thick green lines
 %   cfg = struct('LINEWIDTH',2, 'LINECOLOR','g');
@@ -110,6 +111,8 @@ function varargout = GetContours(varargin)
 % mkt 03/20 v2.4 bug fixes, scroller, DICOM, SLURP support
 % mkt 08/20 v2.5 minor bug fixes, COEF support, add gct_snake (UltraFest IX release)
 % mkt 08/20 v2.6 Fourier coef shape fitting support
+% mkt 08/20 v2.7 support preseeded ANCHORS
+% mkt 09/20 v2.8 fix DICOM close
 
 % STATE (gcf userData) defines internal state for currently displayed frame
 % VNAME (defined in base ws) defines values for each visited frame
@@ -117,7 +120,7 @@ function varargout = GetContours(varargin)
 
 persistent PLAYERH
 
-GCver = 'v2.6';	% current version
+GCver = 'v2.8';	% current version
 
 if nargin < 1,
 	eval('help GetContours');
@@ -228,7 +231,12 @@ switch upper(varargin{1}),
 		v(cellfun(@isempty,{v.XY})) = [];					% delete empty frames
 
 % add additional annotation fields		
-		sr = state.MH.FrameRate;
+		if ischar(state.MH),
+			info = dicominfo(state.MH);						% DICOM
+			sr = info.CineRate;
+		else,
+			sr = state.MH.FrameRate;
+		end;
 		for vi = 1 : length(v),
 			v(vi).TIME = (v(vi).FRAME-1)/sr;				% frame offset in secs from start of movie
 			if state.PARAMS.SAVEIMG,
@@ -1013,6 +1021,7 @@ switch upper(varargin{1}),
 		set(state.IH,'cdata',GetImage(state));
 		set(gcbf,'userData',state);
 		set(gca,'xdir','normal','ydir','reverse','clim',state.CLIM);
+		set(state.TH,'HorizontalAlignment','left');
 		GetContours('MAP','Gray');
 		
 		
@@ -1995,6 +2004,7 @@ delete(cfg);
 function Initialize(fName, varargin)
 
 % defaults
+anchors = [];
 clean = 0;
 crop = [];
 inherit = 0;
@@ -2015,7 +2025,8 @@ if ispc, defCfg.DOTSIZE = 15; end;
 [~,vName] = fileparts(fName);
 for ai = 2 : 2 : length(varargin),
 	switch upper(varargin{ai-1}),
-		case 'CLEAN', clean = strcmpi(varargin{ai}(1),'T') || strcmpi(varargin{ai}(1),'Y');
+		case 'ANCHORS', anchors = varargin{ai};
+		case 'CLEAN', clean = varargin{ai};
 		case 'CONFIG', cfg = varargin{ai}; 
 		case 'CROP', crop = varargin{ai}; 
 		case 'IMGMOD', ImageMod = varargin{ai}; 
@@ -2434,7 +2445,6 @@ set(fh,'name',sprintf('%s  [%d of %d]',fName,frame,nFrames), ...
 set(ih,'buttonDownFcn', {@GetContours,'DOWN'});		% trap buttonDown
 
 % initialize ws state variable
-anchors = [];
 if isempty(v) || clean,		% no pre-existing variable
 	v = struct('XY',state.XY,'ANCHORS',[],'FRAME',frame,'NOTE','','TRKRES',[]);
 else,
