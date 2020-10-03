@@ -14,6 +14,7 @@ function varargout = GetContours(varargin)
 %
 % supported optional 'NAME',VALUE parameter pairs:
 %   ANCHORS  - seed initial frame with these anchor points [nAnchors x X,Y]
+%   AUDIO    - display available audio track if true (default); click on it to set frame
 %   CLEAN    - ignore any previous data if true (logical 1)
 %   CONFIG   - a struct specifying display properties to modify; valid fields are
 %                DOTSIZE, DOTCOLOR, LINEWIDTH, LINECOLOR
@@ -46,6 +47,8 @@ function varargout = GetContours(varargin)
 % containing variable VNAME with fields as above with additional
 %   TIME     - frame offset in secs from start of movie
 %   IMAGE    - grayscale image at current frame (if INCLUDE IMAGES parameter enabled)
+%
+% additional GetContours windows may be opened, but only the first permits editing
 %
 % contours, associated frame numbers and images may be exported to the workspace 
 % before closing the GetContours window using
@@ -113,6 +116,9 @@ function varargout = GetContours(varargin)
 % mkt 08/20 v2.6 Fourier coef shape fitting support
 % mkt 08/20 v2.7 support preseeded ANCHORS
 % mkt 09/20 v2.8 fix DICOM close
+% mkt 09/20 v3.0 support audio panel
+% mkt 09/20 v3.1 support draw mode, multiple panels
+% mkt 09/20 v3.2 support info, frame differencing, anchor deletion issue
 
 % STATE (gcf userData) defines internal state for currently displayed frame
 % VNAME (defined in base ws) defines values for each visited frame
@@ -120,7 +126,7 @@ function varargout = GetContours(varargin)
 
 persistent PLAYERH
 
-GCver = 'v2.8';	% current version
+GCver = 'v3.2';	% current version
 
 if nargin < 1,
 	eval('help GetContours');
@@ -220,12 +226,14 @@ switch upper(varargin{1}),
 		state = get(gcbf,'userData');
 		if ishandle(state.RH), delete(state.RH); end;		% close contrast adjustment (if open)
 		delete(gcbf);										% close window
+		if state.LOCK, return; end;
 
 		v = evalin('base',state.VNAME);						% update output variable state
 		frames = cell2mat({v.FRAME});
 		k = (state.CURFRAME == frames);
 		v(k).XY = state.XY;
 		v(k).ANCHORS = state.ANCHORS;
+		v(k).TRKRES = state.TRKRES;
 		[~,k] = sort(frames);
 		v = v(k);											% impose sequential order
 		v(cellfun(@isempty,{v.XY})) = [];					% delete empty frames
@@ -362,7 +370,11 @@ switch upper(varargin{1}),
 		par = DoConfig(state.PARAMS, state.DEFPAR);
 		if isempty(par), return; end;
 		state.PARAMS = par;
+		state.MPP = state.PARAMS.MPP;
+		state.ORIGIN = state.PARAMS.ORIGIN;
 		set(gcbf,'userData',state);
+		if (~isempty(state.MPP) && ~isempty(state.ORIGIN)), es = 'on'; else, es = 'off'; end;
+		set(state.FCH,'enable',es);
 		
 	
 %-----------------------------------------------------------------------------
@@ -385,7 +397,7 @@ switch upper(varargin{1}),
 		end;
 		
 % update output variable state
-		if dir,
+		if dir && ~isempty(frames),
 			k = (state.CURFRAME == frames);
 			v(k).XY = state.XY;
 			v(k).ANCHORS = state.ANCHORS;
@@ -399,9 +411,9 @@ switch upper(varargin{1}),
 		end;
 
 % movie loop
-		set(gca,'userdata',dir);
-		while get(gca,'userdata'),
-			if ~get(gca,'userdata'), break; end;
+		state.IMGH.UserData = dir;
+		while state.IMGH.UserData,
+			if ~state.IMGH.UserData, break; end;
 			if dir > 0,
 				f = state.CURFRAME + 1;
 				if f > state.NFRAMES, f = state.NFRAMES; break; end;
@@ -416,9 +428,16 @@ switch upper(varargin{1}),
 			set(gcbf,'name',sprintf('%s  [%d of %d]',state.FNAME,f,state.NFRAMES),'userdata',state);
 			set(state.FRAMEH, 'string', num2str(f));
 			set(state.SCROLLERH, 'value', f);
+
+% update audio cursor
+			if ~isempty(state.AUDIO),
+				ff = floor(((f-1)/state.FRATE)*state.AUDIO.SRATE) + 1;
+				set(state.AUDIO.ACH,'xdata',[ff;ff]);
+			end;
 			drawnow;
 		end;
-		set(gca,'userdata',0);
+		state.IMGH.UserData = 0;
+		axes(state.IMGH);
 % clean up
 
 % get current annotation if any
@@ -485,23 +504,39 @@ switch upper(varargin{1}),
 		state.PREVAP = state.ANCHORS;
 		if strcmp(questdlg('Clear all anchors...', 'Verify...', 'Yes', 'No', 'Yes'), 'Yes'),
 			delete(findobj(gca,'tag','CONTOUR'));
-			state.CLH = []; state.ALH = []; state.ANCHORS = [];
+			state.CLH = []; state.ALH = []; state.ANCHORS = []; state.XY = [];
 			set(gcbf,'userData',UpdateContour(state));
 		end;
 		
 
+%-----------------------------------------------------------------------------
+% DIFF:  toggle frame differencing
+
+	case 'DIFF',
+		if strcmp('on',get(gcbo,'checked')),
+			set(gcbo,'checked','off');
+		else,
+			set(gcbo,'checked','on');
+		end;
+		state = get(gcbf,'userData');
+		set(state.IH,'cdata',GetImage(state));		
+	
+	
 %-----------------------------------------------------------------------------
 % DOWN:  mouseDown handler
 %
 % click in image creates new anchor point
 % click on an anchor repositions it
 % control-click on a point deletes it
+% click and drag with no previous anchor points creates XY to which anchors are fitted
 
 	case 'DOWN',
 		state = get(gcbf,'userData');
 		state.PREVAP = state.ANCHORS;
 		gotPoint = (length(varargin) > 1);	% nonzero for click on existing point
 		mod = get(gcbf,'selectionType');
+		cp = get(gca, 'currentPoint');
+		cp = cp(1,1:2);
 
 		switch mod,		
 
@@ -514,16 +549,24 @@ switch upper(varargin{1}),
 								'windowButtonUpFcn',{@GetContours,'UP',gcbo}, ...
 								'pointer','crosshair', ...
 								'userData',UpdateContour(state));
+
+% draw mode:  no existing anchors
+				elseif length(state.ANCHORS) == 0,
+				
+					lh = line(cp(1),cp(2),'color','c','linewidth',2,'tag','TEMPLINE');
+					set(gcbf, 'windowButtonMotionFcn',{@GetContours,'DRAW','MOVE',lh}, ...
+								'windowButtonUpFcn',{@GetContours,'DRAW','UP',lh}, ...
+								'pointer','crosshair', ...
+								'userData',state);
+
 % add new point								
 				else,
 					if isempty(state.TRACKER), 	
 						trackerAddPt = 0;	% default processing
 					else,					% defer to tracker
-						trackerAddPt = state.TRACKER('ADDPT',state);
+						trackerAddPt = state.TRACKER('ADDPT',state,cp);
 					end;
 					if trackerAddPt < 0, return; end;	% -1 flags ignore new point
-					cp = get(gca, 'currentPoint');
-					cp = cp(1,1:2);
 					lh = MakePoint(cp(1),cp(2),state.CONFIG);
 
 % if new point is within existing points (less than half distance between nearest two points)
@@ -578,6 +621,78 @@ switch upper(varargin{1}),
 				end;
 		end;
 		
+	
+%-----------------------------------------------------------------------------
+% DRAW:  draw contour
+%
+%	varargin{2}:  MOVE or UP
+%	varargin{3};  line handle
+%
+% contour drawn if no existing anchor points; on mouseUp anchors are distributed along drawn contour
+
+	case 'DRAW',
+		cp = get(gca, 'currentPoint');
+		cp = cp(1,1:2);
+		lh = varargin{3};
+		xy = [lh.XData ; lh.YData]';
+		if xy(end,1)~=cp(1) || xy(end,2)~=cp(2), 
+			xy(end+1,:) = cp; 
+			set(lh,'xdata',xy(:,1),'ydata',xy(:,2));
+		end;
+
+% MOVE		
+		if strcmp(varargin{2},'MOVE'),
+			drawnow;
+			return;
+		end;
+
+% UP		
+		set(gcbf, 'windowButtonMotionFcn','', 'windowButtonUpFcn','', 'pointer','arrow');
+		delete(findobj(gca,'tag','TEMPLINE'));
+		state = get(gcbf,'userData');
+		if size(xy,1) < 2,		% add anchor point
+			state.ANCHORS = cp;
+			set(gcbf,'userData',UpdateContour(state));
+			return;
+		end;
+		
+% resample drawn contour
+		k = [0 ; cumsum(sqrt(sum(diff(xy).^2,2)))];
+		state.XY = interp1(k, xy, linspace(0, k(end), state.NPOINTS)', 'pchip');	
+
+% find signed curvature using central differencing
+		dx = gradient(state.XY(:,1)); dy = gradient(state.XY(:,2));
+		ddx = gradient(dx); ddy = gradient(dy);
+		k = (dx .* ddy - dy .* ddx) ./ (dx.^2 + dy.^2).^1.5;
+
+% trim curvature to values whose associated radius is less than TRIM * path integral from first to last point
+		fk = k; 
+		trim = .1;
+		if trim > 0,
+			q = sum(sqrt(sum(diff(xy).^2,2))) * trim;
+			fk(abs(1./k) > q) = 0;
+		end;
+
+% count inflections (nonzero sign changes)
+		sfk = sign(fk);
+		xfk = sfk(sfk ~= 0);
+		if isempty(xfk),
+			xfk = sign(k); xfk = xfk(xfk~=0);
+			if isempty(xfk),
+				nInfl = 0;			% collinear points
+			else,
+				nInfl = 1;			% curvature below threshold
+			end;
+		else,
+			nInfl = sum(diff(xfk)~=0) + 1;
+		end;
+		if nInfl > 9, nInfl = 9; end;
+
+		nAnchors = nInfl + 2;
+		k = [0 ; cumsum(sqrt(sum(diff(state.XY).^2,2)))];
+		state.ANCHORS = interp1(k,state.XY,linspace(0,k(end),nAnchors),'linear');
+		set(gcbf,'userData',UpdateContour(state));
+
 	
 %-----------------------------------------------------------------------------
 % EMIT:  export contours to workspace
@@ -773,6 +888,47 @@ switch upper(varargin{1}),
 
 		
 %-----------------------------------------------------------------------------
+% INFO:  report current frame information
+
+	case 'INFO',
+		state = get(gcbf,'userData');
+		fprintf('Frame %s  %s\n', FmtFrame(state.CURFRAME, state.FRATE), get(state.LH,'string'));
+		if size(state.XY,1)<state.NPOINTS || size(state.ANCHORS,1)<3, return; end;
+		xy = state.XY;
+		[~,k] = min(xy(:,2));
+		highPt = xy(k,:);									% contour vertical max
+		xy2 = [xy(end,:) ; xy(1:end-1,:)];
+		areas = xy2(:,1).*xy(:,2) - xy(:,1).*xy2(:,2);
+		sa = sum(areas);
+		cenPt = sum((xy+xy2).*repmat(areas,1,2))./(3*sa);	% centroid
+		cumDist = [0;cumsum(sqrt(sum(diff(xy).^2,2)))];
+		len = cumDist(end);									% contour length
+		if ~isempty(state.MPP) && ~isempty(state.ORIGIN),
+			mmPts = [highPt ; cenPt];
+			mmPts(:,1) = mmPts(:,1) - state.ORIGIN(1);
+			mmPts(:,2) = state.ORIGIN(2) - mmPts(:,2);
+			mmPts = mmPts * state.MPP;
+			mmLen = len * state.MPP;
+			fprintf('  high point:  [%4.0f,%4.0f] (pixels)   [%5.1f,%5.1f] (mm)\n', highPt, mmPts(1,:));
+			fprintf('    centroid:  [%4.0f,%4.0f] (pixels)   [%5.1f,%5.1f] (mm)\n', cenPt, mmPts(2,:));
+			fprintf('      length:  %.0f (pixels)   %.1f (mm)\n', len, mmLen);
+		else,
+			fprintf('  high point:  [%4.0f,%4.0f] (pixels)\n', highPt);
+			fprintf('    centroid:  [%4.0f,%4.0f] (pixels)\n', cenPt);
+			fprintf('      length:  %.0f (pixels)\n', len);
+		end;
+		try,
+			[~,ninfl,mci] = ComputeCurvature(xy);
+			fprintf('       NINFL:  %d    MCI: %.2f\n', ninfl, mci);
+		catch,
+			;
+		end;
+		if ~isempty(state.TRKRES) && isscalar(state.TRKRES),
+			fprintf('      TRKRES:  %.1f\n', state.TRKRES);
+		end;
+
+		
+%-----------------------------------------------------------------------------
 % MAP:  set colormap
 
 	case 'MAP',
@@ -931,14 +1087,14 @@ switch upper(varargin{1}),
 		state = get(gcbf,'userData');
 		ht = (state.CURFRAME-1)/state.FRATE + state.PARAMS.PLAYINT/1000;
 
-% audio (at half sampling rate)
+% audio
 		try,
 			info = audioinfo(state.FNAMEEXT);
 			hts = floor(ht*info.SampleRate) + 1;	% audio interval (samples)
 			if hts(1) < 1, hts(1) = 1; end;
 			if hts(2) > info.TotalSamples, hts(2) = info.TotalSamples; end;
 			[s,sr] = audioread(state.FNAMEEXT,hts);
-			PLAYERH = audioplayer(s(:),round(sr/2));
+			PLAYERH = audioplayer(s,sr);
 			play(PLAYERH);
 		catch,
 			;
@@ -1018,6 +1174,7 @@ switch upper(varargin{1}),
 	case 'RESET',
 		state = get(gcbf,'userData');
 		state.USEAVG = 0;
+		set(state.DH,'checked','off');
 		set(state.IH,'cdata',GetImage(state));
 		set(gcbf,'userData',state);
 		set(gca,'xdir','normal','ydir','reverse','clim',state.CLIM);
@@ -1061,21 +1218,6 @@ switch upper(varargin{1}),
 		set(gcbf,'userData',state);
 		
 	
-%-----------------------------------------------------------------------------
-% SQUAWK:  play audio +/- SQUAWKINT centered on current frame
-
-	case 'SQUAWK',
-		state = get(gcbf,'userData');
-		info = audioinfo(state.FNAMEEXT);
-		ht = (state.CURFRAME-1)/state.FRATE + state.PARAMS.SQUAWKINT/1000;
-		hts = floor(ht*info.SampleRate) + 1;	% audio interval (samples)
-		if hts(1) < 1, hts(1) = 1; end;
-		if hts(2) > info.TotalSamples, hts(2) = info.TotalSamples; end;
-		[s,sr] = audioread(state.FNAMEEXT,hts);
-		PLAYERH = audioplayer(s,sr);
-		play(PLAYERH);
-
-		
 %-----------------------------------------------------------------------------
 % TRACK:  process automatic tracking
 
@@ -1170,10 +1312,6 @@ switch upper(varargin{1}),
 			case 'SAVE', 		% save tracker data to base ws (note: save option must be added to menu explicitly by tracker; cf. gct_lines)
 				state.TRACKER('SAVE', state);
 				
-			case 'CONFIG',		% configure tracker
-				cfg = state.TRACKER('CONFIG', state, 0);
-				if ~isempty(cfg), state.TPAR = cfg; end;
-				
 			case 'DIAGNOSTICS', % show tracker diagnostics (note: save option must be added to menu explicitly by tracker; cf. gct_SLURP)
 				state.TRACKER('DIAGS', state);
 				
@@ -1219,7 +1357,9 @@ switch upper(varargin{1}),
 		if isempty(fh),
 			Initialize(varargin{:});
 		else,
-			figure(fh);				% allow only one active GETCONTOURS object
+			varargin{end+1} = 'LOCK';		% only first object can edit
+			varargin{end+1} = true;
+			Initialize(varargin{:});
 		end;
 		if isunix, [s,r] = unix('osascript -e ''tell application "MATLAB" to activate'''); end;
 end;
@@ -1279,6 +1419,23 @@ img = 1 - sqrt(ix.*ix + iy.*iy);
 
 
 %=============================================================================
+% CURSORADJUST  - set current frame based on click in audio panel
+
+function CursorAdjust(ah, evt)
+
+imgH = ah.UserData;
+if imgH.UserData, imgH.UserData = 0; return; end;	% if cycling exit loop and update there
+cp = get(ah, 'currentPoint');
+x = cp(1,1);
+axes(imgH);			% reset image axis as foreground
+fh = ah.Parent;
+state = get(fh,'userData');
+f = floor(((x-1)/state.AUDIO.SRATE)*state.FRATE) + 1;	% new frame
+state = NewFrame(state,f,0);
+set(fh,'userData',state);
+
+
+%=============================================================================
 % DISTTOCOEF  - compute Fourier coefficients from VT distance function
 
 function [DC,C,S,mag,phase] = DistToCoef(d, nCoef)
@@ -1334,7 +1491,7 @@ si = uicontrol(cfg, ...
 	'Style', 'checkbox', ...
 	'HorizontalAlignment', 'left', ...
 	'String', 'Save Images', ...
-	'Value', dPar.SAVEIMG, ...
+	'Value', par.SAVEIMG, ...
 	'FontSize', 10, ...
 	'Units', 'normalized', ...
 	'Position', [0.3937 0.8107 0.5469 0.0536]);
@@ -1350,7 +1507,7 @@ uicontrol(cfg, ...
 cp = uicontrol(cfg, ...
 	'Style', 'edit', ...
 	'HorizontalAlignment', 'left', ...
-	'String', num2str(dPar.NPOINTS), ...
+	'String', num2str(par.NPOINTS), ...
 	'FontSize', 10, ...
 	'Units', 'normalized', ...
 	'Position', [0.5687 0.7286 0.3281 0.0536]);
@@ -1366,26 +1523,42 @@ uicontrol(cfg, ...
 pint = uicontrol(cfg, ...
 	'Style', 'edit', ...
 	'HorizontalAlignment', 'left', ...
-	'String', sprintf('%d %d',dPar.PLAYINT), ...
+	'String', sprintf('%d %d',par.PLAYINT), ...
 	'FontSize', 10, ...
 	'Units', 'normalized', ...
 	'Position', [0.5687 0.6536 0.3281 0.0536]);
 
-% squawk interval
+% mpp
 uicontrol(cfg, ...
 	'Style','text', ...
 	'HorizontalAlignment', 'right', ...
-	'String','Squawk Interval (ms):', ...
+	'String','mm/pixel:', ...
 	'FontSize', 10, ...
 	'Units', 'normalized', ...
-	'Position', [0.0109 0.5786 0.5469 0.0464]);
-sint = uicontrol(cfg, ...
+	'Position', [0.0109 0.5786 0.2188 0.0464]);
+mpp = uicontrol(cfg, ...
 	'Style', 'edit', ...
 	'HorizontalAlignment', 'left', ...
-	'String', sprintf('%d %d',dPar.SQUAWKINT), ...
+	'String', sprintf('%.3f',par.MPP), ...
 	'FontSize', 10, ...
 	'Units', 'normalized', ...
-	'Position', [0.5687 0.5786 0.3281 0.0536]);
+	'Position', [0.2406 0.5786 0.21 0.0536]);
+
+% origin
+uicontrol(cfg, ...
+	'Style','text', ...
+	'HorizontalAlignment', 'right', ...
+	'String','Origin:', ...
+	'FontSize', 10, ...
+	'Units', 'normalized', ...
+	'Position', [0.455 0.5786 0.1531 0.0464]);
+ogn = uicontrol(cfg, ...
+	'Style', 'edit', ...
+	'HorizontalAlignment', 'left', ...
+	'String', sprintf('%.0f %.0f',par.ORIGIN), ...
+	'FontSize', 10, ...
+	'Units', 'normalized', ...
+	'Position', [0.6125 0.5786 0.2778 0.0536]);
 
 % image forces Gaussian Sigma
 uicontrol(cfg, ...
@@ -1398,7 +1571,7 @@ uicontrol(cfg, ...
 gs = uicontrol(cfg, ...
 	'Style', 'edit', ...
 	'HorizontalAlignment', 'left', ...
-	'String', sprintf('%d %d',dPar.SIGMA), ...
+	'String', sprintf('%d %d',par.SIGMA), ...
 	'FontSize', 10, ...
 	'Units', 'normalized', ...
 	'Position', [0.5687 0.5036 0.3281 0.0536]);
@@ -1417,7 +1590,7 @@ uicontrol(cfg, ...
 ds = uicontrol(cfg, ...
 	'Style', 'edit', ...
 	'HorizontalAlignment', 'left', ...
-	'String', sprintf('%.1f',dPar.DELTA), ...
+	'String', sprintf('%.1f',par.DELTA), ...
 	'FontSize', 10, ...
 	'Units', 'normalized', ...
 	'Position', [0.5687 0.3750 0.3281 0.0536]);
@@ -1433,7 +1606,7 @@ uicontrol(cfg, ...
 bps = uicontrol(cfg, ...
 	'Style', 'edit', ...
 	'HorizontalAlignment', 'left', ...
-	'String', sprintf('%.1f',dPar.BPEN), ...
+	'String', sprintf('%.1f',par.BPEN), ...
 	'FontSize', 10, ...
 	'Units', 'normalized', ...
 	'Position', [0.5687 0.3000 0.3281 0.0536]);
@@ -1450,7 +1623,7 @@ uicontrol(cfg, ...
 	'Position', [0.0656 0.2250 0.1850 0.0464]);
 als = uicontrol(cfg, ...
 	'Style', 'slider', ...
-	'Value', dPar.ALPHA, ...
+	'Value', par.ALPHA, ...
 	'Min', 0, ...
 	'Max', 1, ...
 	'Callback', cbs1, ...
@@ -1459,7 +1632,7 @@ als = uicontrol(cfg, ...
 ale = uicontrol(cfg, ...
 	'Style', 'edit', ...
 	'HorizontalAlignment', 'left', ...
-	'String', sprintf('%0.2f',dPar.ALPHA), ...
+	'String', sprintf('%0.2f',par.ALPHA), ...
 	'FontSize', 10, ...
 	'Callback', cbs2, ...
 	'UserData', als, ...
@@ -1477,7 +1650,7 @@ uicontrol(cfg, ...
 	'Position', [0.0656 0.1500 0.1850 0.0464]);
 las = uicontrol(cfg, ...
 	'Style', 'slider', ...
-	'Value', dPar.LAMBDA, ...
+	'Value', par.LAMBDA, ...
 	'Min', 0, ...
 	'Max', 1, ...
 	'Callback', cbs1, ...
@@ -1486,7 +1659,7 @@ las = uicontrol(cfg, ...
 lae = uicontrol(cfg, ...
 	'Style', 'edit', ...
 	'HorizontalAlignment', 'left', ...
-	'String', sprintf('%0.2f',dPar.LAMBDA), ...
+	'String', sprintf('%0.2f',par.LAMBDA), ...
 	'FontSize', 10, ...
 	'Callback', cbs2, ...
 	'UserData', las, ...
@@ -1556,20 +1729,10 @@ while 1,
 	end;
 	playInt = sort(playInt);
 	
-	squawkInt = str2num(get(sint,'string'));
-	if isempty(squawkInt),
-		set(sint,'string',sprintf('%d %d',dPar.SQUAWKINT));
-		continue;
-	elseif length(squawkInt) == 1,
-		squawkInt = [-1 1]*squawkInt;
-		set(sint,'string',sprintf('%d %d',squawkInt));
-		continue;
-	elseif length(squawkInt) > 2,
-		squawkInt = squawkInt(1:2);
-		set(sint,'string',sprintf('%d %d',squawkInt));
-		continue;
-	end;
-	squawkInt = sort(squawkInt);
+	mppVal = str2num(get(mpp,'string'));
+	
+	origin = str2num(get(ogn,'string'));
+	if ~isempty(origin) && length(origin~=2), origin = dPar.ORIGIN; end;
 	
 	sigma = str2num(get(gs,'string'));
 	if isempty(sigma),
@@ -1597,7 +1760,8 @@ while 1,
 			par.FNAME = fName;
 			par.NPOINTS = nPoints;
 			par.PLAYINT = playInt;
-			par.SQUAWKINT = squawkInt;
+			par.MPP = mppVal;
+			par.ORIGIN = origin;
 			par.SIGMA = sigma;
 			par.SAVEIMG = get(si,'value');
 			par.DELTA = delta;
@@ -1609,7 +1773,8 @@ while 1,
 			set(fn,'string',dPar.FNAME);
 			set(cp,'string',num2str(dPar.NPOINTS));
 			set(pint,'string',sprintf('%d %d',dPar.PLAYINT));
-			set(sint,'string',sprintf('%d %d',dPar.SQUAWKINT));
+			set(mpp,'string',sprintf('%.3f',dPar.MPP));
+			set(ogn,'string',sprintf('%.0f %.0f',dPar.ORIGIN));
 			set(gs,'string',num2str(dPar.SIGMA));
 			set(si,'value',dPar.SAVEIMG);
 			set(ds,'string',sprintf('%0.1f',dPar.DELTA));
@@ -1707,6 +1872,16 @@ if state.USEAVG,
 	if post > state.NFRAMES, post = state.NFRAMES; end;
 	try,
 		img = uint8(mean(GetMovieFrame(state.MH,[pre post],state.CROP,state.RESIZE,state.IMGMODP,state.IMGMODA{:}),3));
+	catch
+		fail = 1;
+	end
+elseif strcmpi('on',get(state.DH,'checked')),	% frame differencing enabled (curFrame+1 - curFrame)
+	f = state.CURFRAME;
+	pre = f;
+	post = f + 1;
+	if post > state.NFRAMES, pre = f-1; post = f; end;
+	try,
+		img = diff(GetMovieFrame(state.MH,[pre post],state.CROP,state.RESIZE,state.IMGMODP,state.IMGMODA{:}),[],3);
 	catch
 		fail = 1;
 	end
@@ -2005,6 +2180,7 @@ function Initialize(fName, varargin)
 
 % defaults
 anchors = [];
+audio = 1;
 clean = 0;
 crop = [];
 inherit = 0;
@@ -2019,6 +2195,7 @@ ImageMod = [];
 Tracker = [];
 tState = [];
 cfg = [];
+lock = false;
 defCfg = struct('DOTSIZE',25,'DOTCOLOR','r','LINEWIDTH',1,'LINECOLOR','y');
 if ispc, defCfg.DOTSIZE = 15; end;
 
@@ -2026,12 +2203,14 @@ if ispc, defCfg.DOTSIZE = 15; end;
 for ai = 2 : 2 : length(varargin),
 	switch upper(varargin{ai-1}),
 		case 'ANCHORS', anchors = varargin{ai};
+		case 'AUDIO', audio = varargin{ai};
 		case 'CLEAN', clean = varargin{ai};
 		case 'CONFIG', cfg = varargin{ai}; 
 		case 'CROP', crop = varargin{ai}; 
 		case 'IMGMOD', ImageMod = varargin{ai}; 
 		case 'FRAME', first = varargin{ai};
 		case 'KEYFRAME', keyFrames = varargin{ai};
+		case 'LOCK', lock = varargin{ai};
 		case 'MPP', mpp = varargin{ai};
 		case 'NPOINTS', nPoints = varargin{ai};
 		case 'ORIGIN', origin = varargin{ai};
@@ -2065,11 +2244,12 @@ elseif exist([vName,'.mat']) == 2,
 else,
 	v = [];
 end;
+if lock, v = []; Tracker = []; end;
 
 % verify overwrite if either exist
 if ~isempty(v),
 	if isunix, [s,r] = unix('osascript -e ''tell application "MATLAB" to activate'''); end;
-	if strcmp(questdlg(sprintf('%s exists; overwrite its values?\n(%s_old backup will be created)',vName,vName), ... 
+	if strcmp(questdlg(sprintf('%s exists; overwrite its values?\n(%s_old backup variable will be created)',vName,vName), ... 
 			'Verify...', 'Yes', 'No', 'Yes'), 'No'), return; end;
 
 % make backup copy of original variable in ws
@@ -2088,6 +2268,7 @@ if isempty(e) || strcmpi(e,'.dcm'),		% DICOM
 	frameRate = info.RecommendedDisplayFrameRate;
 	nFrames = info.NumberOfFrames;
 	mh = fNameExt;
+	audio = false;
 else,						% movie
 	try, 
 		mh = VideoReader(fNameExt); 
@@ -2100,6 +2281,13 @@ else,						% movie
 	else,
 		frameRate = mh.FrameRate;
 		nFrames = floor(mh.Duration*frameRate);
+	end;
+	if audio,
+		try,
+			[s,sr] = audioread(fNameExt);
+		catch,
+			audio = false;
+		end;
 	end;
 end;
 
@@ -2154,19 +2342,23 @@ end;
 
 % display image
 pos = get(0, 'defaultfigureposition');
-fh = figure('menubar','none', 'units','pixels', 'resize','off', 'tag','GETCONTOURS', 'position',[pos(1) , pos(2)+pos(4)-rows , cols, rows]);
+fh = figure('menubar','none', 'units','pixels', 'resize','off', 'tag','GETCONTOURS', 'position',[pos(1) , pos(2)+pos(4)-rows , cols, rows], 'visible','off');
 set(fh, 'colormap', gray(256));
 ih = imagesc(img);
-clim = get(gca,'clim');
+imgH = gca;							% image axis
+clim = get(imgH,'clim');
 
 % gca userdata tracks cycling: 0 off, -1 back, +1 fwd
-set(gca, 'position',[0 0 1 1], 'xtick',[],'ytick',[],'userdata',0);
+set(imgH, 'position',[0 0 1 1], 'xtick',[],'ytick',[],'userdata',0);
+
+% make room for slider and audio
+pos = get(fh,'position');
+set(imgH,'units','pixels');
+if audio, dy = 85; else, dy = 25; end;
+set(fh,'position',[pos(1) pos(2)-dy pos(3) pos(4)+dy]);
+set(imgH,'position',[1 dy+1 pos(3) pos(4)]);
 
 % init frame slider controls
-pos = get(fh,'position');
-set(gca,'units','pixels');
-set(fh,'position',[pos(1) pos(2)-25 pos(3) pos(4)+25]);
-set(gca,'position',[1 26 pos(3) pos(4)+25]);
 if ispc,
 	fs = 10;
 	pp = [.1,.4,10,1.2;10.6,.1,10,1.5;112,3,30,20;145,3,pos(3)-180,19;pos(3)-32,3,30,20];
@@ -2230,6 +2422,9 @@ uimenu(menu,'label','About...', ...
 uimenu(menu,'label','Configure...', ...
 			'accelerator', '9', ...
 			'callback',{@GetContours,'CONFIG'});
+uimenu(menu,'label','Frame Information', ...
+			'accelerator', 'I', ...
+			'callback',{@GetContours,'INFO'});
 uimenu(menu,'label','Export Contours...', ...
 			'accelerator', 'E', ...
 			'callback',{@GetContours,'EXPORT'});
@@ -2278,15 +2473,10 @@ uimenu(menu,'label','Stop Cycling', ...
 uimenu(menu,'label','Play @ Current Frame', ...
 			'accelerator', 'P', ...
 			'callback',{@GetContours,'PLAY'});
-if ischar(mh), e = 'off'; else, e = 'on'; end;
-uimenu(menu,'label','Squawk @ Current Frame', ...
-			'accelerator', 'S', ...
-			'enable', e, ...
-			'callback',{@GetContours,'SQUAWK'});
 
 nh = uimenu(menu,'label','Inherit Anchors', ...
 			'separator','on', ...
-			'accelerator', 'I', ...
+			'accelerator', '1', ...
 			'callback',cbs);
 uimenu(menu,'label','Redistribute Anchors', ...
 			'accelerator','R', ...
@@ -2309,6 +2499,9 @@ uimenu(menu,'label','Apply Snake', ...
 uimenu(menu,'label','Image Forces', ...
 			'accelerator', 'L', ...
 			'callback',{@GetContours,'FILTER'});
+dh = uimenu(menu,'label','Frame Differencing', ...
+			'accelerator', 'D', ...
+			'callback',{@GetContours,'DIFF'});
 oh = uimenu(menu,'label','Reset Original Image', ...
 			'accelerator', 'G', ...
 			'callback',{@GetContours,'RESET'});
@@ -2361,7 +2554,9 @@ tmh = uimenu(menu,'label',n, ...
 uimenu(menu,'label','Clear', ...
 			'separator','on', ...
 			'callback',{@GetContours,'TRACK','CLEAR'});
+if lock, es = 'off'; else, es = 'on'; end;
 uimenu(menu,'label','Select...', ...
+			'enable', es, ...
 			'callback',{@GetContours,'TRACK','SELECT'});
 tmh(2) = uimenu(menu,'label','Export Tracker Data...', ...
 			'enable',e, ...
@@ -2377,13 +2572,46 @@ tmh(4) = uimenu(menu,'label','Apply Tracking', ...
 			'enable',e, ...
 			'callback',{@GetContours,'TRACK','APPLY'});
 		
+% init audio display
+if audio,
+	p = [5 26 pos(3)-9 dy-29];
+	axes('units','pixels','position',p);
+	plot(s,'HitTest','off');
+	q = max(abs(s),[],'all') * 1.1;
+	set(gca,'xtick',[],'ytick',[],'xlim',[1 size(s,1)],'ylim',q*[-1 1],'ButtonDownFcn',@CursorAdjust,'userData',imgH);
+	if ~isempty(keyFrames),
+		d = diff(keyFrames,[],2);
+		k = find(~d);		% points
+		f = keyFrames(k,1);
+		f = floor(((f-1)/frameRate)*sr)+1;
+		if ~isempty(f), line([f,f]',get(gca,'ylim'),'color',[0 .6 0],'HitTest','off'); end;
+		idx = find(d);		% intervals
+		for k = 1 : length(idx),
+			f = keyFrames(idx(k),:);
+			x = floor(((f-1)/frameRate)*sr)+1;
+			x = [x;x];
+			x = x(:)';
+			y = get(gca,'ylim');
+			y = [y fliplr(y)];
+			patch(x,y,[0 .6 0],'edgecolor',[0 .6 0],'facealpha',.1,'HitTest','off');
+		end;
+	end;
+	f = floor(((frame-1)/frameRate)*sr) + 1;	
+	ach = line([f;f],get(gca,'ylim'),'color','r','HitTest','off');	% cursor
+	audio = struct('SRATE',sr, 'ACH',ach);			% package audio params here (srate, cursor handle)
+else,
+	audio = [];
+end;
+
 % init internal state
 state = struct('IH', ih, ...				% image handle
+				'IMGH', imgH, ...			% image axis
 				'MH', mh, ...				% movie handle
 				'TH', th, ...				% frame text handle
 				'LH', lh, ...				% annotation text handle
 				'FCH', fch, ...				% Fourier coefs menu handle
 				'NH', nh, ...				% inherit anchors menu handle
+				'DH', dh, ...				% frame differencing menu handle
 				'TMH', tmh, ...				% tracking menu handles (1: name, 2: export, 3: track, 4: apply, 5: diag)
 				'FRAMEH', frameH, ...		% frame box handle
 				'SCROLLERH', scrollerH, ...	% scroller handle
@@ -2410,13 +2638,15 @@ state = struct('IH', ih, ...				% image handle
 				'XY', [], ...				% current contour points
 				'CLH', [], ...				% and their line handle
 				'USEAVG', 0, ...			% frame averaging enabled
-				'AVG', 0, ...				% pre/post # frames to average
+				'AUDIO', audio, ...			% display audio params
+				'AVG', 1, ...				% pre/post # frames to average
 				'RH', [], ...				% contrast adjustment handle
 				'FNAME', fName, ...			% movie name (w/o path and extension)
 				'FNAMEEXT', fNameExt, ...	% full movie name
 				'VNAME', vName, ...			% emit array name
 				'MPP', mpp, ...				% mm per pixel factor
 				'ORIGIN', origin, ...		% origin
+				'LOCK', lock, ...			% true if editing permitted
 				'DEFPAR', [], ...			% defaults
 				'PARAMS', []);				% parameters
 state.LABELS = labs;
@@ -2426,7 +2656,8 @@ state.IMGMODA = ImageModA;
 dPar = struct('FNAME', vName, ...				% export filename
 				'NPOINTS', 100, ...				% # of contour points
 				'PLAYINT', [-500 500], ...		% play interval around current frame (ms)
-				'SQUAWKINT', [-500 1000], ...	% squawk interval (ms)
+				'MPP', mpp, ...					% mm per pixel factor
+				'ORIGIN', origin, ...			% origin
 				'SIGMA', 5, ...					% image forces Gaussian sigma
 				'SAVEIMG', 0, ...				% save images
 				'DELTA', 2, ...					% snake params:  delta
@@ -2441,8 +2672,10 @@ set(fh,'name',sprintf('%s  [%d of %d]',fName,frame,nFrames), ...
 		'numberTitle','off', ...
 		'closeRequestFcn',{@GetContours,'CLOSE'}, ...
 		'tag','GETCONTOURS', ...
+		'visible','on', ...
 		'userData',state);
-set(ih,'buttonDownFcn', {@GetContours,'DOWN'});		% trap buttonDown
+if ~lock, set(ih,'buttonDownFcn', {@GetContours,'DOWN'}); end		% trap buttonDown on image
+axes(imgH);
 
 % initialize ws state variable
 if isempty(v) || clean,		% no pre-existing variable
@@ -2459,7 +2692,7 @@ else,
 		end;
 	end;	
 end;
-assignin('base',vName,v);
+if ~lock, assignin('base',vName,v); end;
 
 % configure tracker if any
 if ~isempty(Tracker), 
@@ -2475,7 +2708,7 @@ if ~isempty(anchors),
 end;
 
 % set internal state
-set(fh, 'userdata', state);
+set(fh, 'userdata',state);
 
 
 %===============================================================================
@@ -2553,28 +2786,36 @@ function state = NewFrame(state, newFrame, forceInherit, external)
 if nargin < 4, external = 0; end;
 
 % update output variable state before change
-v = evalin('base',state.VNAME);			% frame data in base ws (VNAME)
-frames = cell2mat({v.FRAME});			% frames with data
-k = find(state.CURFRAME == frames);
-v(k).XY = state.XY;
-v(k).ANCHORS = state.ANCHORS;
-v(k).NOTE = get(state.LH,'string');
-v(k).TRKRES = state.TRKRES;
-assignin('base',state.VNAME,v);
+if ~state.LOCK,
+	v = evalin('base',state.VNAME);			% frame data in base ws (VNAME)
+	frames = cell2mat({v.FRAME});			% frames with data
+	k = find(state.CURFRAME == frames);
+	v(k).XY = state.XY;
+	v(k).ANCHORS = state.ANCHORS;
+	v(k).NOTE = get(state.LH,'string');
+	v(k).TRKRES = state.TRKRES;
+	assignin('base',state.VNAME,v);
+end;
 
 % change frame
 state.CURFRAME = newFrame;
 
+% update audio cursor
+if ~isempty(state.AUDIO),
+	f = floor(((newFrame-1)/state.FRATE)*state.AUDIO.SRATE) + 1;
+	set(state.AUDIO.ACH,'xdata',[f;f]);
+end;
+
 % get current annotation if any
 ts = '';
 k = find(newFrame == frames);
-if ~isempty(k), ts = v(k).NOTE; end
+if ~isempty(k) && ~state.LOCK, ts = v(k).NOTE; end;
 
 % use Praat labels if no annotation
 if isempty(ts) && ~isempty(state.KEYFRAMES),
 	k = find(newFrame>=state.KEYFRAMES(:,1) & newFrame<=state.KEYFRAMES(:,2));
-	if ~isempty(k), k = k(end); ts = state.LABELS{k}; end
-end
+	if ~isempty(k), k = k(end); ts = state.LABELS{k}; end;
+end;
 
 % update frame
 set(state.IH,'cdata',GetImage(state));				% image
@@ -2586,6 +2827,8 @@ set(state.LH,'string',ts);							% annotation
 set(gcbf,'name',sprintf('%s  [%d of %d]',state.FNAME,newFrame,state.NFRAMES));
 set(state.FRAMEH, 'string', num2str(newFrame));
 set(state.SCROLLERH, 'value', newFrame);
+if state.LOCK, return; end;
+
 delete(findobj(gca,'tag','CONTOUR'));				% delete existing handles
 state.ALH = []; state.CLH = [];
 k = find(newFrame == frames);

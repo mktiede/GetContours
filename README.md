@@ -1,8 +1,8 @@
 GetContours  
 ==
 
-![SLURP Example](SLURP.png)
-Example showing result of automated tracking using gct_SLURP, showing best-fitting contour at left with superimposed interactively adjustable spline anchor points, and fit diagnostics at left
+![Tahltan Example](saekaes.png)
+Example showing gct_Tahltan plugin applied to Xplane (simultaneous midsagittal and coronal) image of /ae/.  Red dots are interactively adjustable spline anchor points controlling tongue contour fit at right, and defining medial groove depth at right.
 
 **GetContours** is a Matlab-based platform that provides straightforward click-and-drag positioning of reference points controlling a cubic spline fit to a displayed ultrasound image of the midsagittal tongue surface. This fit – the “contour” – provides a discretized representation of the tongue suitable for subsequent analysis. Contour fitting may be either interactive, driven by image forces, or automated through sequences. Features of the program include:
 
@@ -10,8 +10,10 @@ Example showing result of automated tracking using gct_SLURP, showing best-fitti
 
 * tools for image filtering, averaging, and contrast enhancement
 
-* Praat TextGrids labeled on associated audio can be imported to identify and
+* **Praat TextGrids** labeled on associated audio can be imported to identify and
 annotate articulatory events of interest, allowing rapid selection of key frames within image sequences
+
+* audio from the source movie is displayed if available and may be played to provide context for the displayed frame; clicking on the audio plot may also be used to set the active frame
 
 * support for image pre-processing on loading (e.g. cropping, resizing, or custom enhancement)
 
@@ -26,6 +28,11 @@ annotate articulatory events of interest, allowing rapid selection of key frames
 * support for estimating Fourier fit coefficients from contour shape (Liljencrants 1971)
 
 * separate _DotsPlace_, _DotsTrack_ procedures can be used to track image features from co-collected video to generate e.g. head-centric correction signals for extracted contours
+
+* the _ComputeCurvature_ procedure provides curvature-based measures of the number of inflection points (NINFL) and the Modified Curvature Index (MCI) for the current frame
+
+![SLURP Example](SLURP.png)
+Example showing result of automated tracking using gct_SLURP, showing best-fitting contour at right with superimposed interactively adjustable spline anchor points, and fit diagnostics at left
 
 ![SHAPE Example](SHAPE.png)
 Example illustrating Fourier coefficient shape fitting
@@ -52,10 +59,13 @@ v2.5 12AUG20 bug fixes, added gct_snake (UltraFest 2020 version)
 v2.6 19AUG20 support for Fourier coefficient shape fitting  
 v2.7 26AUG20 support preseeded anchors  
 v2.8 15SEP20 fix DICOM close  
+v3.0 08SEP20 support audio panel  
+v3.1 15SEP20 support draw mode, multiple panels  
+v3.2 03OCT20 support info, frame differencing, anchor deletion issue  
 
 Copyright (C) 2015-2020 mark tiede
 
-Publications which make use of `gct_SLURP` should cite Laporte C & Ménard L. (2018).
+Publications which make use of `gct_SLURP` should cite Laporte, C. & Ménard, L. (2018).
 Multi-hypothesis tracking of the tongue surface in ultrasound video recordings of normal
 and impaired speech.  _Medical Image Analysis_, 44, 98-114.
 

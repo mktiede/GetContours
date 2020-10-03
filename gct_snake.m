@@ -3,10 +3,14 @@ function r = gct_snake(action, state, varargin)
 %
 %	usage:  r = gct_snake(action, state, ...)
 %
-% This procedure uses the default snake algorithm (the EdgeTrak implementation of C. Laporte) with
-% the relevant parameters configured using the main GetContours configuration dialog.  After 
-% seeding of the first frame with a minimum of three points, subsequent frames are seeded using the 
-% fit from the preceding frame.
+% This procedure uses the default snake algorithm (the Li et al. 2005 EdgeTrak implementation of 
+% C. Laporte) with the relevant parameters configured using the main GetContours configuration dialog.  
+% After seeding of the first frame with a minimum of three points, subsequent frames are seeded using  
+% the fit from the preceding frame.
+%
+% Publications which make use of this software should cite Laporte C & Ménard L. (2018). 
+% Multi-hypothesis tracking of the tongue surface in ultrasound video recordings of normal 
+% and impaired speech.  Medical Image Analysis, 44, 98-114.
 
 % mkt 08/20 UltraFest IX release
 
@@ -217,7 +221,7 @@ blurb = ['This procedure uses the default GC snake algorithm (the EdgeTrak imple
 		'with the relevant parameters configured using the main GetContours configuration dialog.  After ', ...
 		'seeding of the first frame with a minimum of three points, subsequent frames are seeded using ', ...
 		'the fit from the preceding frame.'];
-if ismac, fs = 12; else; fs = 8; end;
+if ispc, fs = 8; else; fs = 12; end;
 
 uicontrol(cfg, ...
 	'Style', 'frame', ...
