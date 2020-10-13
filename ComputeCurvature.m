@@ -14,8 +14,10 @@ function [k,nInfl,mci] = ComputeCurvature(xy, varargin)
 %
 % plots data and associated curvature if no output arguments requested
 %
-% optionally returns the Preston et al. (2019) NINFL measure (number of infledtion points) from 
-% trimmed curvature (values whose associated radius is less than TRIM * path integral)
+% optionally returns the Preston et al. (2019) NINFL measure (number of inflection points) from 
+% trimmed signed curvature (values whose associated radius is less than TRIM * path integral); 
+% an inflection point is counted if the trimmed curvature changes sign, and there is always at 
+% least one inflection point for non-collinear points
 %
 % optionally returns the Dawson et al. (2016) modified curvature index (MCI), the integral of
 % the filtered (5-tap Butterworth) unsigned curvature
@@ -47,6 +49,7 @@ function [k,nInfl,mci] = ComputeCurvature(xy, varargin)
 % mkt 06/15
 % mkt 07/17 add mci
 % mkt 05/18 add circle k, reorganize
+% mkt 10/20 rationalize output plotting
 
 % parse args
 if nargin < 1, eval('help ComputeCurvature'); return; end;
@@ -135,12 +138,13 @@ if trim > 0,
 	fk(abs(1./k) > q) = 0;
 end;
 
-% count inflections (nonzero sign changes)
+% count inflections (nonzero sign changes) plus one
 sfk = sign(fk);
 xfk = sfk(sfk ~= 0);
 if isempty(xfk),
-	xfk = sign(k); xfk = xfk(xfk~=0);
-	if isempty(xfk),
+	c = corrcoef(xy(:,1),xy(:,2));
+	c = 1 - c(2,1);
+	if c < .01,				% correlation > .99
 		nInfl = 0;			% collinear points
 	else,
 		nInfl = 1;			% curvature below threshold
@@ -150,15 +154,15 @@ else,
 end;
 
 % compute MCI (average of Simpson's Rule applied to intervals 1:N-1 plus trapezoid for final interval
-% and 2:N plus trapezoid for first interval) on filtered curvature
+% and 2:N plus trapezoid for first interval) on filtered curvature (kk)
 n = length(k);
 rk = flipud(k);
-kk = [rk;k;rk];
+kk = [rk;k;rk];		% pad to avoid edge effects
 if FcLP > 0,
 	[b,a] = butter(5,FcLP);
 	kk = filtfilt(b,a,kk);
 end; 
-kk = kk(n+1:n*2);
+kk = kk(n+1:n*2);	% filtered curvature
 x = [0 ; cumsum(sqrt(sum(diff(xy).^2,2)))];
 y = abs(kk);
 if mod(n,2),		% even number of intervals
@@ -171,27 +175,54 @@ end;
 
 if nargout > 0, return; end;
 
+% map inflection points to curvature for plotting
+if nInfl < 2,
+	N = [];
+else,
+	z = FindExtents(find(sfk == 0)); 
+	if sfk(z(1,1)) == 0,
+		sfk(z(1,1):z(1,2)) = sfk(z(1,2)+1);
+		z = FindExtents(find(sfk == 0)); 
+	end;
+	for zi = 1 : size(z,1), 
+		sfk(z(zi,1):z(zi,2)) = sfk(z(zi,1)-1); 
+	end;
+	N = find(diff(sfk))';
+end;
+
 % plot
-n = find(diff(sfk)~=0) + 1;
-if mod(length(n),2), n(end) = []; end;
-n = reshape(n,[2 length(n)/2])';
-N = [];
-for i = 1 : size(n,1), [~,N(i)] = max(abs(fk(n(i,1):n(i,2)))); N(i) = N(i) + n(i,1) - 1; end;
 figure; 
 subplot(211);
 plot(xy(:,1),xy(:,2),'b-');
-if ~isempty(N), hold on; plot(xy(N,1),xy(N,2),'ro'); end;
+if ~isempty(N), 
+	hold on; 
+	plot(xy(N,1),xy(N,2),'ro'); hold on; plot(xy(N,1),xy(N,2),'g*');
+end;
 axis equal; 
+yl = get(gca,'ylim');
+r = .05*diff(yl);
+set(gca,'ydir','reverse','ylim',r*[-1 1]+yl);
 title(inputname(1),'interpreter','none')
 subplot(212);
-h = plot([k,fk,kk]);
+h = plot([k,fk,abs(kk)]);
 h(1).Color = 'b'; h(2).Color = 'r'; h(3).Color = [0 .7 0];
 set(gca,'xlim',[1 length(k)]);
-if ~isempty(N), line([N;N], get(gca,'ylim'), 'color','c'); end;
+if ~isempty(N), 
+	line([N;N], get(gca,'ylim'), 'color','g', 'linewidth',2); 
+end;
 line([1 length(k)],[0 0],'color',[.7 .7 .7],'linestyle',':');
 title(sprintf('# inflections:  %d       MCI = %.2f', nInfl, mci));
-legend(h,'Curvature (K)','Trimmed K','Filtered K');
+legend(h,'Curvature (K)','Trimmed K','Filtered abs(K)');
 clear k
+
+%===================================================================================================
+% FINDEXTENTS  - find continguous extents of an indexed signal
+
+function idx = FindExtents(v)
+
+idx = find(diff([-1;v]) > 1);
+len = diff([idx;length(v)+1]);
+idx = [v(idx) , v(idx)+len-1];			% [nExtents x head,tail]
 
 
 %===================================================================================================
