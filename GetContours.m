@@ -119,6 +119,7 @@ function varargout = GetContours(varargin)
 % mkt 09/20 v3.0 support audio panel
 % mkt 09/20 v3.1 support draw mode, multiple panels
 % mkt 09/20 v3.2 support info, frame differencing, anchor deletion issue
+% mkt 10/20 v3.3 bug fixes
 
 % STATE (gcf userData) defines internal state for currently displayed frame
 % VNAME (defined in base ws) defines values for each visited frame
@@ -126,7 +127,7 @@ function varargout = GetContours(varargin)
 
 persistent PLAYERH
 
-GCver = 'v3.2';	% current version
+GCver = 'v3.3';	% current version
 
 if nargin < 1,
 	eval('help GetContours');
@@ -2786,7 +2787,9 @@ function state = NewFrame(state, newFrame, forceInherit, external)
 if nargin < 4, external = 0; end;
 
 % update output variable state before change
-if ~state.LOCK,
+if state.LOCK,
+	frames = [];
+else,
 	v = evalin('base',state.VNAME);			% frame data in base ws (VNAME)
 	frames = cell2mat({v.FRAME});			% frames with data
 	k = find(state.CURFRAME == frames);

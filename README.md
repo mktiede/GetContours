@@ -62,6 +62,7 @@ v2.8 15SEP20 fix DICOM close
 v3.0 08SEP20 support audio panel  
 v3.1 15SEP20 support draw mode, multiple panels  
 v3.2 03OCT20 support info, frame differencing, anchor deletion issue  
+v3.3 14OCT20 bug fixes  
 
 Copyright (C) 2015-2020 mark tiede
 
