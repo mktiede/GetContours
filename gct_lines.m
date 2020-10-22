@@ -23,12 +23,15 @@ function r = gct_lines(action, state, varargin)
 % the intersection for a given anchor line pair is stored as a marker whose handle is
 % stored in the line connecting that pair; clicking on that line allows updating its position
 %
+% data saved to workspace have format:
+% [nFrames x X,Y, % along green to red line of intersection, intensity @intersection, frame# x nAnchorPairs]
+%
 % see also GCT_FAN
 
 % mkt 06/18
 % mkt 07/18 fix empty TRKVAL save-to-ws issue  
 % mkt 12/19 facelift & fixes
-% mkt 08/20 UltraFest IX release
+% mkt 10/20 UltraFest IX release
 
 % trap line click callback
 if ~ischar(action),
@@ -167,8 +170,8 @@ switch upper(action),
 %
 %	returns nothing
 %
-% this handler saves TRKRES data as VNAME_trk, formatted as [nFrames x X,Y,%,I x nAnchorPairs]
-% tracking data:  [nAnchors x X,Y, percent of line segment & intensity at intersection]
+% this handler saves TRKRES data as VNAME_trk, formatted as [nFrames x X,Y,%,I,frame x nAnchorPairs]
+% tracking data:  [nAnchors x ,Y, percent of line segment & intensity at intersection, frame#]
 % assumes consistent number of anchors each frame
 
 	case 'SAVE',
@@ -181,8 +184,8 @@ switch upper(action),
 		d = {v.TRKRES};
 		if nAP < 1 || isempty(cell2mat(d)), return; end;
 		idx = find(cellfun(@isempty,d));
-		for k = idx, d{k} = NaN(1,4); end;		% fill untracked frames
-		d = permute(reshape(cell2mat(d')',[4, nAP, length(v)]),[3 1 2]);
+		for k = idx, d{k} = NaN(nAP,5); end;		% fill untracked frames
+		d = permute(reshape(cell2mat(d')',[5, nAP, length(v)]),[3 1 2]);
 		
 		vName = sprintf('%s_trk', state.VNAME);
 		if evalin('base',sprintf('exist(''%s'',''var'')',vName)),
@@ -200,7 +203,7 @@ switch upper(action),
 %
 % 	varargin{1} is nonzero on first track of a sequence
 %
-% state.TRKRES set to [nAnchors x X,Y, percent of line & intensity at intersection]
+% state.TRKRES set to [nAnchors x X,Y, percent of line & intensity at intersection, frame]
 
 	case 'TRACK',
 		nAnchors = size(state.ANCHORS,1);
@@ -215,8 +218,8 @@ switch upper(action),
 		yy = reshape(xy(:,2),2,nAnchors/2);
 		d = round(sqrt(diff(xx).^2 + diff(yy).^2));		% line seg lengths
 		np = length(d);									% number of line segs
-		data = NaN(np,4);
-		idx = NaN(1,np);								% indices of intersections
+		data = NaN(np,5);
+%		idx = NaN(1,np);								% indices of intersections
 		lh = state.CLH;
 		for k = 1 : np,
 			x = round(linspace(xx(1,k),xx(2,k),d(k)));
@@ -224,7 +227,7 @@ switch upper(action),
 			stripe = double(img(sub2ind(size(img),y,x))) / 255;		% scale 0:1
 			[n,v] = DoTrack(stripe, state.TPAR, lh(k));		% track intensity boundary
 			if isempty(n),
-				data(k,:) = NaN(1,4);						% no intersection
+				data(k,:) = NaN(1,5);						% no intersection
 				continue;
 			end;
 
@@ -237,8 +240,8 @@ switch upper(action),
 				set(lh(k).UserData,'xdata',x(n), 'ydata',y(n));
 			end;
 				
-			data(k,:) = [x(n),y(n),n/d(k),v];	% result
-			idx(k) = n;							% index of intersection
+			data(k,:) = [x(n),y(n),n/d(k),v,state.CURFRAME,];	% result
+%			idx(k) = n;							% index of intersection
 		end;
 		drawnow;
 		state.TRKRES = data;					% save data

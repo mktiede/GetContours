@@ -924,7 +924,7 @@ switch upper(varargin{1}),
 		catch,
 			;
 		end;
-		if ~isempty(state.TRKRES) && isscalar(state.TRKRES),
+		if ~isempty(state.TRKRES) && isnumeric(state.TRKRES),
 			fprintf('      TRKRES:  %.1f\n', state.TRKRES);
 		end;
 
@@ -1733,7 +1733,7 @@ while 1,
 	mppVal = str2num(get(mpp,'string'));
 	
 	origin = str2num(get(ogn,'string'));
-	if ~isempty(origin) && length(origin~=2), origin = dPar.ORIGIN; end;
+	if ~isempty(origin) && length(origin)~=2, origin = dPar.ORIGIN; end;
 	
 	sigma = str2num(get(gs,'string'));
 	if isempty(sigma),
@@ -1960,7 +1960,7 @@ if ~isempty(reSize) && reSize~=1,
 	end;
 
 % build interpolation indices
-	[ih,iw] = size(img);
+	[ih,iw,~] = size(img);
 	mih = floor(ih*reSize); miw = floor(iw*reSize);
 	[x,y] = meshgrid(1:(iw-1)/(miw-1):iw, 1:(ih-1)/(mih-1):ih);
 
