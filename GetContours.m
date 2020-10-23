@@ -120,7 +120,7 @@ function varargout = GetContours(varargin)
 % mkt 09/20 v3.1 support draw mode, multiple panels
 % mkt 09/20 v3.2 support info, frame differencing, anchor deletion issue
 % mkt 10/20 v3.3 bug fixes
-% mkt 10/20 v3.4 test all files as DICOM first, fix cfg bug
+% mkt 10/20 v3.4 test all files as DICOM first, fix mpp cfg bug
 
 % STATE (gcf userData) defines internal state for currently displayed frame
 % VNAME (defined in base ws) defines values for each visited frame
