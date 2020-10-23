@@ -2260,7 +2260,7 @@ end;
 % open the movie
 fNameExt = fName;
 [p,fName,e] = fileparts(fName);
-if isempty(e) || strcmpi(e,'.dcm'),		% DICOM
+if isempty(e) || strcmpi(e,'.dcm') || strcmpi(e,'.dicom'),		% DICOM
 	try,
 		info = dicominfo(fNameExt);
 	catch,
