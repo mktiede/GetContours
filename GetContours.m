@@ -120,6 +120,7 @@ function varargout = GetContours(varargin)
 % mkt 09/20 v3.1 support draw mode, multiple panels
 % mkt 09/20 v3.2 support info, frame differencing, anchor deletion issue
 % mkt 10/20 v3.3 bug fixes
+% mkt 10/20 v3.4 test all files as DICOM first, fix cfg bug
 
 % STATE (gcf userData) defines internal state for currently displayed frame
 % VNAME (defined in base ws) defines values for each visited frame
@@ -127,7 +128,7 @@ function varargout = GetContours(varargin)
 
 persistent PLAYERH
 
-GCver = 'v3.3';	% current version
+GCver = 'v3.4';	% current version
 
 if nargin < 1,
 	eval('help GetContours');
@@ -426,7 +427,9 @@ switch upper(varargin{1}),
 			set(state.IH,'cdata',GetImage(state));
 			if state.ISKF(f), c = 'g'; else, c = 'y'; end;
 			set(state.TH,'color',c,'string',sprintf('%s',FmtFrame(f,state.FRATE)));
-			set(gcbf,'name',sprintf('%s  [%d of %d]',state.FNAME,f,state.NFRAMES),'userdata',state);
+			n = sprintf('%s  [%d of %d]',state.FNAME,f,state.NFRAMES);
+			if ~state.LOCK, n = [n , ' (editable)']; end;
+			set(gcbf,'name',n, 'userdata',state);
 			set(state.FRAMEH, 'string', num2str(f));
 			set(state.SCROLLERH, 'value', f);
 
@@ -985,6 +988,11 @@ switch upper(varargin{1}),
 		rect = getrect(state.IH.Parent);
 		r = round([rect(2),rect(2)+rect(4)-1]);
 		c = round([rect(1),rect(1)+rect(3)-1]);
+		[h,w] = size(img);
+		if r(1) < 1, r(1) = 1; end;
+		if r(2) > h, r(2) = h; end;
+		if c(1) < 1, c(1) = 1; end;
+		if c(2) > w, c(2) = w; end;
 		img = img(r(1):r(2),c(1):c(2));
 		img = img > 100;		% threshold
 
@@ -999,6 +1007,7 @@ switch upper(varargin{1}),
 % mpp
 		mpp = 10*cm/dy;
 		state.MPP = mpp;
+		state.PARAMS.MPP = mpp;
 		set(fh, 'userdata', state);
 		if (~isempty(state.MPP) && ~isempty(state.ORIGIN)), es = 'on'; else, es = 'off'; end;
 		set(state.FCH,'enable',es);
@@ -1072,6 +1081,7 @@ switch upper(varargin{1}),
 		line(origin(1),origin(2),'color','g','marker','+','markersize',20,'tag','CONTOUR');
 	
 		state.ORIGIN = origin;
+		state.PARAMS.ORIGIN = origin;
 		set(fh, 'userdata', state);
 		if (~isempty(state.MPP) && ~isempty(state.ORIGIN)), es = 'on'; else, es = 'off'; end;
 		set(state.FCH,'enable',es);
@@ -2260,12 +2270,12 @@ end;
 % open the movie
 fNameExt = fName;
 [p,fName,e] = fileparts(fName);
-if isempty(e) || strcmpi(e,'.dcm'),		% DICOM
-	try,
-		info = dicominfo(fNameExt);
-	catch,
-		error('unable to open DICOM file %s', fNameExt);
-	end;
+try,
+	info = dicominfo(fNameExt);
+catch,
+	info = [];
+end;
+if ~isempty(info),			% DICOM
 	frameRate = info.RecommendedDisplayFrameRate;
 	nFrames = info.NumberOfFrames;
 	mh = fNameExt;
@@ -2669,8 +2679,9 @@ dPar = struct('FNAME', vName, ...				% export filename
 state.DEFPAR = dPar;
 state.PARAMS = dPar;
 
-set(fh,'name',sprintf('%s  [%d of %d]',fName,frame,nFrames), ...
-		'numberTitle','off', ...
+n = sprintf('%s  [%d of %d]',fName,frame,nFrames);
+if ~lock, n = [n , ' (editable)']; end;
+set(fh,'name', n, ...
 		'closeRequestFcn',{@GetContours,'CLOSE'}, ...
 		'tag','GETCONTOURS', ...
 		'visible','on', ...
@@ -2827,7 +2838,9 @@ if external, axes(get(state.IH,'parent')); end;
 if state.ISKF(newFrame), c = 'g'; else, c = 'y'; end;
 set(state.TH,'color',c,'string',sprintf('%s',FmtFrame(newFrame,state.FRATE)));	% frame count, time
 set(state.LH,'string',ts);							% annotation
-set(gcbf,'name',sprintf('%s  [%d of %d]',state.FNAME,newFrame,state.NFRAMES));
+n = sprintf('%s  [%d of %d]',state.FNAME,newFrame,state.NFRAMES);
+if ~state.LOCK, n = [n , ' (editable)']; end;
+set(gcbf,'name',n);
 set(state.FRAMEH, 'string', num2str(newFrame));
 set(state.SCROLLERH, 'value', newFrame);
 if state.LOCK, return; end;

@@ -63,6 +63,7 @@ v3.0 08SEP20 support audio panel
 v3.1 15SEP20 support draw mode, multiple panels  
 v3.2 03OCT20 support info, frame differencing, anchor deletion issue  
 v3.3 22OCT20 bug fixes  
+v3.4 23OCT20 DICOM file extension issue, cfg bug, mark editable GC window  
 
 Copyright (C) 2015-2020 mark tiede
 
