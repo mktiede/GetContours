@@ -16,6 +16,7 @@ function r = gct_SLURP(action, state, varargin)
 % C. Laporte 11/19
 % mkt 01/20 various tweaks
 % mkt 08/20 UltraFest IX release
+% mkt 01/21 fix max init issue
 
 %	branch by ACTION
 
@@ -241,7 +242,7 @@ if isempty(tPar) || ~strcmp(tPar.ID, idString),
 
 % build masks
 	maxFrames = 100;			% max # frames to search for mask construction
-	mask = MakeMask(GetContours('GETMOVIEFRAME',[1 min([maxFrames state.NFRAMES-1])]));
+	mask = MakeMask(GetContours('GETMOVIEFRAME',[state.CURFRAME min([(state.CURFRAME+maxFrames-1) state.NFRAMES-1])]));
 	se = strel('rectangle', [10 10]);
 	mask = imopen(mask,se);
 	gmask = ComputeImageForces(mask, dPar.SIGMA);

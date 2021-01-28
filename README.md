@@ -64,8 +64,9 @@ v3.1 15SEP20 support draw mode, multiple panels
 v3.2 03OCT20 support info, frame differencing, anchor deletion issue  
 v3.3 22OCT20 bug fixes  
 v3.4 23OCT20 DICOM file extension issue, cfg bug, mark editable GC window  
+v3.5 28JAN21 fix gct_SLURP mask initialization  
 
-Copyright (C) 2015-2020 mark tiede
+Copyright (C) 2015-2021 mark tiede
 
 Publications which make use of `gct_SLURP` should cite Laporte, C. & Ménard, L. (2018).
 Multi-hypothesis tracking of the tongue surface in ultrasound video recordings of normal
