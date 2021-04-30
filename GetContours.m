@@ -9,6 +9,7 @@ function varargout = GetContours(varargin)
 % control (right) click on a point deletes it
 % shift (mid) click on a point reports anchor point info
 % undo reverts to previous anchor positions
+% hold shift (50 ms), control (200 ms), alt/command (500 ms) to slow image cycling
 %
 % use menu entries to adjust anchor points and image display
 %
@@ -120,7 +121,8 @@ function varargout = GetContours(varargin)
 % mkt 09/20 v3.1 support draw mode, multiple panels
 % mkt 09/20 v3.2 support info, frame differencing, anchor deletion issue
 % mkt 10/20 v3.3 bug fixes
-% mkt 10/20 v3.4 test all files as DICOM first, fix mpp cfg bug
+% mkt 10/20 v3.4 test all files as DICOM first, fix cfg bug
+% mkt 03/21 v3.5 add measurement tool, slowdown with modifier keys on cycle
 
 % STATE (gcf userData) defines internal state for currently displayed frame
 % VNAME (defined in base ws) defines values for each visited frame
@@ -128,7 +130,7 @@ function varargout = GetContours(varargin)
 
 persistent PLAYERH
 
-GCver = 'v3.4';	% current version
+GCver = 'v3.5';	% current version
 
 if nargin < 1,
 	eval('help GetContours');
@@ -305,7 +307,7 @@ switch upper(varargin{1}),
 		fprintf('\n  DC: %5.2f',DC);
 		fprintf('\n Cos:'); fprintf(' %5.2f',C);
 		fprintf('\n Sin:'); fprintf(' %5.2f',S);
-		fprintf('\n Mag:'); fprintf(' %5.2f',mag); fprintf('  (constriction degree)');
+		fprintf('\n Mag:'); fprintf(' %5.2f',mag); fprintf('  (constriction degree, in cm, without DC)');
 		fprintf('\n Phi:'); fprintf(' %5.1f',phi*180/pi); fprintf('  (constriction location, in degrees)\n');
 	
 % adjust semi-polar gridlines
@@ -329,7 +331,7 @@ switch upper(varargin{1}),
 		s{1} = sprintf(' DC = %5.2f', DC);
 		s{2} = ['Cos =', sprintf('%6.2f',C)];
 		s{3} = ['Sin =', sprintf('%6.2f',S)];
-		s{4} = ['Mag =', sprintf('%6.2f',DC+sqrt(C.^2 + S.^2))];
+		s{4} = ['Mag =', sprintf('%6.2f',DC+mag)];
 		s{5} = ['Phi =', sprintf('%6.2f',phi*180/pi)];
 
 		[xy,d] = CoefToShape(C, S, DC, glx, gly);
@@ -439,10 +441,21 @@ switch upper(varargin{1}),
 				set(state.AUDIO.ACH,'xdata',[ff;ff]);
 			end;
 			drawnow;
+
+% delay if any modifier key down
+			mod = get(gcbf, 'currentmodifier');
+			if isempty(mod), mod = ''; else, mod = mod{1}; end;
+			switch mod,
+				case {'command','alt'}, pause(.5);
+				case 'control', pause(.2);
+				case 'shift', pause(.05);
+				otherwise,
+			end;
 		end;
+		
+% clean up
 		state.IMGH.UserData = 0;
 		axes(state.IMGH);
-% clean up
 
 % get current annotation if any
 		ts = '';
@@ -952,6 +965,23 @@ switch upper(varargin{1}),
 		set(gcbf,'colormap',map);
 		
 
+%-----------------------------------------------------------------------------
+% MEASURE:  measure distance
+
+	case 'MEASURE',
+		state = get(gcbf,'userData');
+		if isempty(state.MPP) || isempty(state.ORIGIN),
+			v = [];
+		else,
+			[v.HEIGHT,~] = size(get(state.IH,'cdata'));
+			v.MPP = state.MPP;
+			v.ORIGIN = state.ORIGIN;
+		end;
+		h = drawline('EdgeAlpha',.5,'linewidth',2,'color','y','userData',v);
+		addlistener(h, 'ROIClicked', @UpdateDist);
+		addlistener(h, 'MovingROI', @UpdateDist);
+		
+		
 %-----------------------------------------------------------------------------
 % MOVE:  mouseMvt handler
 
@@ -2439,6 +2469,8 @@ uimenu(menu,'label','Frame Information', ...
 uimenu(menu,'label','Export Contours...', ...
 			'accelerator', 'E', ...
 			'callback',{@GetContours,'EXPORT'});
+uimenu(menu,'label','Measure...', ...
+			'callback',{@GetContours,'MEASURE'});
 uimenu(menu,'label','Find mm/pixel...', ...
 			'callback',{@GetContours,'MPP'});
 uimenu(menu,'label','Find Origin...', ...
@@ -2487,7 +2519,7 @@ uimenu(menu,'label','Play @ Current Frame', ...
 
 nh = uimenu(menu,'label','Inherit Anchors', ...
 			'separator','on', ...
-			'accelerator', '1', ...
+			'accelerator', '3', ...
 			'callback',cbs);
 uimenu(menu,'label','Redistribute Anchors', ...
 			'accelerator','R', ...
@@ -3031,4 +3063,24 @@ switch size(state.ANCHORS,1),
 		set(state.CLH,'xdata',state.XY(:,1),'ydata',state.XY(:,2));
 end;
 drawnow;
+
+
+%===============================================================================
+% UPDATEDIST  - update measured distance callback
+%
+% responds to ROIClicked, MovingROI to update label
+
+function UpdateDist(h, evt)
+
+p = h.Position;
+v = h.UserData;
+if isempty(v),
+	ls = 'px';
+else,
+	ls = 'mm';
+	p(:,1) = p(:,1) - v.ORIGIN(1);
+	p(:,2) = v.ORIGIN(2) - p(:,2);
+	p = p * v.MPP;
+end;
+h.Label = sprintf('[%.1f,%.1f] %.1f (%s)', p(1,:), sqrt(sum(diff(p).^2)), ls);
 
